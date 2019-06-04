@@ -27,27 +27,10 @@ from deployment import Deployment, DeploymentError
 class AWSDeployment(Deployment):
     """A deployment to Amazon Web Services"""
 
-    def __init__(self, vm_name, image_path, aws_variables):
-        super().__init__(vm_name, image_path, extension="ami")
+    def __init__(self, image_name, image_path, aws_variables):
+        super().__init__(image_name, image_path, extension="ami")
         self.validate_variables(aws_variables)
         self.aws_variables = aws_variables
-
-    # ensure_vm_name_available = """
-# - hosts: localhost
-  # connection: local
-  # tasks:
-  # - name: Try to find a VM of the same name
-    # ec2_instance_facts:
-    #   aws_access_key: "{{ access_key }}"
-    #   aws_secret_key: "{{ secret_key }}"
-    #   filters:
-    #     "tag:Name": "{{ vm_name }}"
-    # register: instance_facts
-  # - name: Fail if VM name is taken
-    # fail:
-    #   msg: "VM {{ vm_name }} already exists!"
-    # when: instance_facts.instances | length > 0
-# """
 
     ensure_ami_name_available = """
 - hosts: localhost
@@ -58,11 +41,11 @@ class AWSDeployment(Deployment):
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
       filters:
-        name: "{{ vm_name }}-ami"
+        name: "{{ image_name }}"
     register: ami_facts
   - name: Fail if AMI name is taken
     fail:
-      msg: "AMI {{ vm_name }}-ami is taken!"
+      msg: "AMI {{ image_name }} is taken!"
     when: ami_facts.images | length > 0
 """
 
@@ -104,7 +87,7 @@ class AWSDeployment(Deployment):
       aws_secret_key: "{{ secret_key }}"
       bucket: "{{ s3_bucket }}"
       src: "{{ image_path }}"
-      object: "{{ image_name }}"
+      object: "{{ image_id }}"
       mode: put
       overwrite: never
 """
@@ -117,7 +100,7 @@ class AWSDeployment(Deployment):
     ec2_ami:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
-      name: "{{ vm_name }}-ami"
+      name: "{{ image_name }}"
       state: present
       virtualization_type: hvm
       root_device_name: /dev/sda1
@@ -127,31 +110,12 @@ class AWSDeployment(Deployment):
         delete_on_termination: true
 """
 
-    create_virtual_machine = """
-- hosts: localhost
-  connection: local
-  tasks:
-  - name: Get AMI ID
-    ec2_ami_facts:
-      aws_access_key: "{{ access_key }}"
-      aws_secret_key: "{{ secret_key }}"
-      filters:
-        name: "{{ vm_name }}-ami"
-    register: ami_facts
-  - name: Create EC2 virtual machine
-    ec2_instance:
-      aws_access_key: "{{ access_key }}"
-      aws_secret_key: "{{ secret_key }}"
-      name: "{{ vm_name }}"
-      image_id: "{{ ami_facts.images[0].image_id }}"
-      instance_type: "{{ vm_type }}"
-      security_groups: "{{ security_groups }}"
-      state: present
-"""
-
     @staticmethod
     def validate_variables(variables):
-        for expected in ["access_key", "secret_key", "s3_bucket", "region_name"]:
+        expected_variables = [
+            "access_key", "secret_key", "s3_bucket", "region_name"
+        ]
+        for expected in expected_variables:
             if expected not in variables:
                 raise ValueError(f'Variable "{expected}" expected but was not found!')
 
@@ -178,7 +142,7 @@ class AWSDeployment(Deployment):
             try:
                 response = ec2_client.describe_snapshots(Filters=[snapshot_filter])
             except BotoCoreError as error:
-                raise DeploymentError("Import snapshot failed") from error
+                raise DeploymentError("Import snapshot failed!") from error
             snapshots = response["Snapshots"]
             if snapshots:
                 # Use the most recent upload (not that there should be any duplicates)
@@ -188,17 +152,17 @@ class AWSDeployment(Deployment):
         # If we've already imported the snapshot, just use that
         snapshot_id = get_snapshot({
             "Name": f"tag:{tag_key}",
-            "Values": [self.image_name]
+            "Values": [self.image_id]
         })
         if snapshot_id:
             return snapshot_id
 
         disk_container = {
-            "Description": self.image_name,
+            "Description": self.image_id,
             "Format": "raw",
             "UserBucket": {
                 "S3Bucket": self.aws_variables["s3_bucket"],
-                "S3Key": self.image_name
+                "S3Key": self.image_id
             }
         }
         try:
@@ -225,36 +189,21 @@ class AWSDeployment(Deployment):
 
         ec2_client.create_tags(Resources=[snapshot_id], Tags=[{
             "Key": "composer-deployment",
-            "Value": self.image_name
+            "Value": self.image_id
         }])
 
         return snapshot_id
 
     def _deploy(self):
-        image_variables = {
-            "image_path": self.image_path,
-            "image_name": self.image_name
-        }
-
-        self._log(f"Ensuring AMI name {self.vm_name}-ami is available...")
+        self._log(f"Ensuring AMI name {self.image_name} is available...")
         try:
             self._run_playbook(self.ensure_ami_name_available, {
                 **self.aws_variables,
-                "vm_name": self.vm_name
+                "image_name": self.image_name
             })
         except CalledProcessError as error:
-            raise DeploymentError(f"AMI {self.vm_name}-ami already exists!") from error
+            raise DeploymentError(f"AMI {self.image_name} already exists!") from error
         self._log("AMI name is available.")
-
-        # self._log(f"Ensuring VM name {self.vm_name} is available...")
-        # try:
-        #     self._run_playbook(self.ensure_vm_name_available, {
-        #         **self.aws_variables,
-        #         "vm_name": self.vm_name
-        #     })
-        # except CalledProcessError as error:
-        #     raise DeploymentError(f"VM {self.vm_name} already exists!") from error
-        # self._log("VM name is available.")
 
         self._log("Ensuring vmimport role exists...")
         try:
@@ -273,7 +222,11 @@ class AWSDeployment(Deployment):
 
         self._log(f"Uploading image {self.image_path} to bucket {bucket}...")
         try:
-            self._run_playbook(self.upload, {**self.aws_variables, **image_variables})
+            self._run_playbook(self.upload, {
+                **self.aws_variables,
+                "image_path": self.image_path,
+                "image_id": self.image_id
+            })
         except CalledProcessError as error:
             raise DeploymentError("Upload to S3 failed!") from error
         self._log("Image uploaded.")
@@ -282,25 +235,13 @@ class AWSDeployment(Deployment):
         snapshot_id = self._import_snapshot()
         self._log(f"Snapshot successfully imported with ID {snapshot_id}.")
 
-        self._log(f"Registering image as an AMI with name {self.vm_name}-ami...")
+        self._log(f"Registering image as an AMI with name {self.image_name}...")
         try:
             self._run_playbook(self.register_image, {
                 **self.aws_variables,
                 "image_name": self.image_name,
-                "vm_name": self.vm_name,
                 "snapshot_id": snapshot_id
             })
         except CalledProcessError as error:
             raise DeploymentError("Couldn't register image as an AMI!") from error
-        self._log(f"Image {self.vm_name} successfully registered.")
-
-        self._log(f"Creating EC2 virtual machine {self.vm_name}...")
-        try:
-            self._run_playbook(self.create_virtual_machine, {
-                **self.aws_variables,
-                "vm_name": self.vm_name,
-                "security_groups": json.dumps(self.aws_variables["security_groups"])
-            })
-        except CalledProcessError as error:
-            raise DeploymentError("Couldn't create virtual machine!") from error
-        self._log(f"Virtual machine created successfully.")
+        self._log(f"Image {self.image_name} successfully registered.")

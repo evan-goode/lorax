@@ -15,6 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from subprocess import CalledProcessError
+
 from deployment import Deployment, DeploymentError, DeploymentStatus
 
 class AzureDeployment(Deployment):
@@ -25,7 +27,7 @@ class AzureDeployment(Deployment):
         self.azure_variables = azure_variables
 
     upload = """
-- hosts: 127.0.0.1
+- hosts: localhost
   connection: local
   tasks:
   - name: Upload image to Azure
@@ -44,7 +46,7 @@ class AzureDeployment(Deployment):
     """
 
     import_image = """
-- hosts: 127.0.0.1
+- hosts: localhost
   connection: local
   tasks:
   - name: Import image
@@ -60,66 +62,40 @@ class AzureDeployment(Deployment):
       source: "{{ source }}"
     """
 
-    create_virtual_machine = """
-- hosts: 127.0.0.1
-  connection: local
-  tasks:
-  - name: Create a VM
-    azure_rm_virtualmachine:
-      subscription_id: "{{ subscription_id }}"
-      client_id: "{{ client_id }}"
-      secret: "{{ secret }}"
-      tenant: "{{ tenant }}"
-      resource_group: "{{ resource_group }}"
-      name: "{{ vm_name }}"
-      vm_size: "{{ vm_size }}"
-      location: "{{ location }}"
-      admin_username: azure-user
-      ssh_password_enabled: false
-      ssh_public_keys:
-      - path: /home/azure-user/.ssh/authorized_keys
-        key_data: "{{ ssh_public_key }}"
-      image:
-        name: "{{ image_name }}"
-        resource_group: "{{ resource_group }}"
-      storage_account_name: "{{ storage_account_name }}"
-    """
-
     @staticmethod
     def validate_variables(variables):
-        for expected in [
-                "subscription_id", "client_id", "secret", "tenant"
-                "resource_group", "storage_account_name", "storage_container",
-                "location", "vm_size"
-        ]:
+        expected_variables = [
+            "subscription_id", "client_id", "secret", "tenant", "resource_group",
+            "storage_account_name", "storage_container", "location"
+        ]
+        for expected in expected_variables:
             if expected not in variables:
                 raise ValueError(f'Variable "{expected}" expected but was not found!')
 
     def _deploy(self):
-        run_playbook(self.upload, {
-            **self.azure_variables,
-            "image_path": self.image_path,
-            "image_name": self.image_name
-        })
+        storage_container = self.azure_variables["storage_container"]
+        self._log(f"Uploading image {self.image_path} to container {storage_container}...")
+        try:
+            self._run_playbook(self.upload, {
+                **self.azure_variables,
+                "image_path": self.image_path,
+                "image_name": self.image_name
+            })
+        except CalledProcessError as error:
+            raise DeploymentError("Image upload failed!") from error
+        self._log("Image uploaded.")
 
         storage_account_name = self.azure_variables["storage_account_name"]
-        storage_container = self.azure_variables["storage_container"]
         host = f"{storage_account_name}.blob.core.windows.net"
         uploaded_url = f"https://{host}/{storage_container}/{self.image_name}"
-        print(uploaded_url)
 
-        print("importing")
-        run_playbook(self.import_image, {
-            **self.azure_variables,
-            "image_name": self.image_name,
-            "source": uploaded_url
-        })
-
-        print("creating vm")
-        run_playbook(self.create_virtual_machine, {
-            **self.azure_variables,
-            "vm_name": self.vm_name,
-            "image_name": self.image_name
-        })
-
-        print("success")
+        self._log(f"Importing image...")
+        try:
+            self._run_playbook(self.import_image, {
+                **self.azure_variables,
+                "image_name": self.image_name,
+                "source": uploaded_url
+            })
+        except CalledProcessError as error:
+            raise DeploymentError("Image import failed!") from error
+        self._log("Image imported.")

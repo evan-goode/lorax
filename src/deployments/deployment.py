@@ -55,13 +55,13 @@ class Deployment(ABC):
     """A deployment of a composed image to an abstract cloud provider.
     Subclasses represent deployments to different providers."""
 
-    def __init__(self, vm_name, image_path, extension="img"):
-        self.vm_name = vm_name
+    def __init__(self, image_name, image_path, extension="img"):
+        self.image_name = image_name
         self.image_path = image_path
         print("hashing image")
         self.image_hash = hash_image(image_path)
         print("done hashing, hash is", self.image_hash)
-        self.image_name = f"composer-deployment-{self.image_hash}.{extension}"
+        self.image_id = f"composer-image-{self.image_hash}.{extension}"
 
         self.deploy_log = ""
         self.status = DeploymentStatus.WAITING
@@ -121,8 +121,10 @@ class Deployment(ABC):
         try:
             if self.status is not DeploymentStatus.WAITING:
                 raise DeploymentError("This deployment has already been attempted!")
+            self.status = DeploymentStatus.RUNNING
             self._deploy()
         except DeploymentError as error:
             self._log(error)
             self.error = error
             self.status = DeploymentStatus.FAILED
+        self.status = DeploymentStatus.FINISHED
