@@ -85,6 +85,7 @@ class Deployment(ABC):
         :type message: object
         """
         self.deploy_log += f"{message}\n"
+        print(message) # TODO
 
     def _run_playbook(self, playbook, variables=None):
         """Run ansible-playbook on a playbook string

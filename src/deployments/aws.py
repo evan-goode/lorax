@@ -32,18 +32,53 @@ class AWSDeployment(Deployment):
         self.validate_variables(aws_variables)
         self.aws_variables = aws_variables
 
+    # ensure_vm_name_available = """
+# - hosts: localhost
+  # connection: local
+  # tasks:
+  # - name: Try to find a VM of the same name
+    # ec2_instance_facts:
+    #   aws_access_key: "{{ access_key }}"
+    #   aws_secret_key: "{{ secret_key }}"
+    #   filters:
+    #     "tag:Name": "{{ vm_name }}"
+    # register: instance_facts
+  # - name: Fail if VM name is taken
+    # fail:
+    #   msg: "VM {{ vm_name }} already exists!"
+    # when: instance_facts.instances | length > 0
+# """
+
+    ensure_ami_name_available = """
+- hosts: localhost
+  connection: local
+  tasks:
+  - name: Ensure the AMI name we want isn't taken
+    ec2_ami_facts:
+      aws_access_key: "{{ access_key }}"
+      aws_secret_key: "{{ secret_key }}"
+      filters:
+        name: "{{ vm_name }}-ami"
+    register: ami_facts
+  - name: Fail if AMI name is taken
+    fail:
+      msg: "AMI {{ vm_name }}-ami is taken!"
+    when: ami_facts.images | length > 0
+"""
+
     ensure_vmimport_role_exists = """
 - hosts: localhost
   connection: local
   tasks:
-  - name: Ensure vmimport role exists
+  - name: Find vmimport role
     iam_role_facts:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
       name: vmimport
     register: role_facts
-  - fail:
-      msg: "Role vmimport doesn't exist"
+  - name: Fail if vmimport role not found
+    fail:
+      msg: "Role vmimport doesn't exist!"
     when: role_facts.iam_roles | length < 1
 """
 
@@ -102,13 +137,13 @@ class AWSDeployment(Deployment):
       aws_secret_key: "{{ secret_key }}"
       filters:
         name: "{{ vm_name }}-ami"
-    register: ami_results
+    register: ami_facts
   - name: Create EC2 virtual machine
     ec2_instance:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
       name: "{{ vm_name }}"
-      image_id: "{{ ami_results.images[0].image_id }}"
+      image_id: "{{ ami_facts.images[0].image_id }}"
       instance_type: "{{ vm_type }}"
       security_groups: "{{ security_groups }}"
       state: present
@@ -201,6 +236,26 @@ class AWSDeployment(Deployment):
             "image_name": self.image_name
         }
 
+        self._log(f"Ensuring AMI name {self.vm_name}-ami is available...")
+        try:
+            self._run_playbook(self.ensure_ami_name_available, {
+                **self.aws_variables,
+                "vm_name": self.vm_name
+            })
+        except CalledProcessError as error:
+            raise DeploymentError(f"AMI {self.vm_name}-ami already exists!") from error
+        self._log("AMI name is available.")
+
+        # self._log(f"Ensuring VM name {self.vm_name} is available...")
+        # try:
+        #     self._run_playbook(self.ensure_vm_name_available, {
+        #         **self.aws_variables,
+        #         "vm_name": self.vm_name
+        #     })
+        # except CalledProcessError as error:
+        #     raise DeploymentError(f"VM {self.vm_name} already exists!") from error
+        # self._log("VM name is available.")
+
         self._log("Ensuring vmimport role exists...")
         try:
             self._run_playbook(self.ensure_vmimport_role_exists, self.aws_variables)
@@ -225,9 +280,9 @@ class AWSDeployment(Deployment):
 
         self._log("Importing image as an EBS snapshot...")
         snapshot_id = self._import_snapshot()
-        self._log(f"Snapshot successfully imported. ID is {snapshot_id}.")
+        self._log(f"Snapshot successfully imported with ID {snapshot_id}.")
 
-        self._log(f"Registering image as an AMI with name {self.vm_name}...")
+        self._log(f"Registering image as an AMI with name {self.vm_name}-ami...")
         try:
             self._run_playbook(self.register_image, {
                 **self.aws_variables,

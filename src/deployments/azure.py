@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from deployment import Deployment, DeploymentError, DeploymentStatus, run_playbook
+from deployment import Deployment, DeploymentError, DeploymentStatus
 
 class AzureDeployment(Deployment):
     """A deployment to Microsoft Azure"""
