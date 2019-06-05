@@ -22,8 +22,8 @@ from upload import Upload, UploadError, UploadStatus
 class AzureUpload(Upload):
     """An upload to Microsoft Azure"""
 
-    def __init__(self, vm_name, image_path, azure_variables):
-        super().__init__(vm_name, image_path, extension="vhd")
+    def __init__(self, image_name, image_path, azure_variables):
+        super().__init__(image_name, image_path, extension="vhd")
         self.azure_variables = azure_variables
 
     upload_image = """
@@ -40,7 +40,7 @@ class AzureUpload(Upload):
       storage_account_name: "{{ storage_account_name }}"
       container: "{{ storage_container }}"
       src: "{{ image_path }}"
-      blob: "{{ image_name }}"
+      blob: "{{ image_id }}"
       blob_type: page
       force: no
     """
@@ -79,7 +79,7 @@ class AzureUpload(Upload):
             self._run_playbook(self.upload_image, {
                 **self.azure_variables,
                 "image_path": self.image_path,
-                "image_name": self.image_name
+                "image_id": self.image_id
             })
         except CalledProcessError as error:
             raise UploadError("Image upload failed!") from error
@@ -87,7 +87,7 @@ class AzureUpload(Upload):
 
         storage_account_name = self.azure_variables["storage_account_name"]
         host = f"{storage_account_name}.blob.core.windows.net"
-        uploaded_url = f"https://{host}/{storage_container}/{self.image_name}"
+        uploaded_url = f"https://{host}/{storage_container}/{self.image_id}"
 
         self._log(f"Importing image...")
         try:
