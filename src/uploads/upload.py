@@ -61,7 +61,7 @@ class Upload(ABC):
         print("hashing image")
         self.image_hash = hash_image(image_path)
         print("done hashing, hash is", self.image_hash)
-        self.image_id = f"composer-image-{self.image_hash}.{extension}"
+        self.image_id = f"{image_name}-{self.image_hash}.{extension}"
 
         self.upload_log = ""
         self.status = UploadStatus.WAITING
