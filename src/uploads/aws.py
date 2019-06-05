@@ -32,6 +32,17 @@ class AWSUpload(Upload):
         super().__init__(image_name, image_path, extension="ami")
         self.aws_variables = aws_variables
 
+    test_credentials = """
+- hosts: localhost
+  connection: local
+  tasks:
+  - name: Make sure provided credentials work
+    aws_caller_facts:
+      aws_access_key: "{{ access_key }}"
+      aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
+"""
+
     ensure_ami_name_available = """
 - hosts: localhost
   connection: local
@@ -40,6 +51,7 @@ class AWSUpload(Upload):
     ec2_ami_facts:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
       filters:
         name: "{{ image_name }}"
     register: ami_facts
@@ -57,6 +69,7 @@ class AWSUpload(Upload):
     iam_role_facts:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
       name: vmimport
     register: role_facts
   - name: Fail if vmimport role not found
@@ -73,6 +86,7 @@ class AWSUpload(Upload):
     aws_s3:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
       bucket: "{{ s3_bucket }}"
       mode: create
 """
@@ -85,6 +99,7 @@ class AWSUpload(Upload):
     aws_s3:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
       bucket: "{{ s3_bucket }}"
       src: "{{ image_path }}"
       object: "{{ image_id }}"
@@ -100,6 +115,7 @@ class AWSUpload(Upload):
     ec2_ami:
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
+      region: "{{ region_name }}"
       name: "{{ image_name }}"
       state: present
       virtualization_type: hvm
@@ -115,9 +131,12 @@ class AWSUpload(Upload):
         expected_variables = [
             "access_key", "secret_key", "s3_bucket", "region_name"
         ]
+        can_be_empty = frozenset(("access_key", "secret_key", "region_name"))
         for expected in expected_variables:
             if expected not in variables:
-                raise ValueError(f'Variable "{expected}" expected but was not found!')
+                raise ValueError(f'Variable {expected} expected but was not found!')
+            if not variables[expected] and expected not in can_be_empty:
+                raise ValueError(f'Variable {expected} cannot be empty!')
 
     def _import_snapshot(self):
         """Imports an image stored on S3 as an EC2 snapshot
@@ -195,6 +214,13 @@ class AWSUpload(Upload):
         return snapshot_id
 
     def _upload(self):
+        self._log(f"Testing provided credentials...")
+        try:
+            self._run_playbook(self.test_credentials, self.aws_variables)
+        except CalledProcessError as error:
+            raise UploadError("Could not authenticate to AWS!") from error
+        self._log(f"Credentials look OK.")
+
         self._log(f"Ensuring AMI name {self.image_name} is available...")
         try:
             self._run_playbook(self.ensure_ami_name_available, {
