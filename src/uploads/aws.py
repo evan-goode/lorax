@@ -28,8 +28,8 @@ class AWSUpload(Upload):
     """An upload to Amazon Web Services"""
 
     def __init__(self, image_name, image_path, aws_variables):
-        super().__init__(image_name, image_path, extension="ami")
         self.validate_variables(aws_variables)
+        super().__init__(image_name, image_path, extension="ami")
         self.aws_variables = aws_variables
 
     ensure_ami_name_available = """

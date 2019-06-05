@@ -19,46 +19,47 @@ from subprocess import CalledProcessError
 
 from upload import Upload, UploadError, UploadStatus
 
-class VSphereUpload(Upload):
-    """An upload to VMWare vSphere"""
+class OpenStackUpload(Upload):
+    """An upload to OpenStack"""
 
-    def __init__(self, image_name, image_path, vsphere_variables):
-        self.validate_variables(vsphere_variables)
-        super().__init__(image_name, image_path, extension="vmdk")
-        self.vsphere_variables = vsphere_variables
-        if "folder" not in vsphere_variables:
-            self.vsphere_variables["folder"] = "."
+    def __init__(self, image_name, image_path, openstack_variables):
+        self.validate_variables(openstack_variables)
+        super().__init__(image_name, image_path, extension="qcow2")
+        self.openstack_variables = openstack_variables
 
     upload_image = """
 - hosts: localhost
   connection: local
   tasks:
-  - name: Upload image to vSphere
-    vsphere_copy:
-      login: "{{ username }}"
-      password: "{{ password }}"
-      host: "{{ host }}"
-      datacenter: "{{ datacenter }}"
-      datastore: "{{ datastore }}"
-      src: "{{ image_path }}"
-      path: "{{ folder }}/{{ image_id }}"
+  - name: Upload image to OpenStack
+    os_image:
+      auth:
+        auth_url: "{{ auth_url }}"
+        username: "{{ username }}"
+        password: "{{ password }}"
+        project_name: "{{ project_name }}"
+        os_user_domain_name: "{{ user_domain_name }}"
+        os_project_domain_name: "{{ project_domain_name }}"
+      name: "{{ image_id }}"
+      filename: "{{ image_path }}"
+      is_public: "{{ is_public }}"
     """
 
     @staticmethod
     def validate_variables(variables):
         expected_variables = [
-            "datacenter", "datastore", "host", "username", "password"
+            "auth_url", "username", "password", "project_name", "user_domain_name",
+            "project_domain_name", "is_public"
         ]
         for expected in expected_variables:
             if expected not in variables:
                 raise ValueError(f'Variable "{expected}" expected but was not found!')
 
     def _upload(self):
-        datastore = self.vsphere_variables["datastore"]
-        self._log(f"Uploading image {self.image_path} to datastore {datastore}...")
+        self._log(f"Uploading image {self.image_path} OpenStack...")
         try:
             self._run_playbook(self.upload_image, {
-                **self.vsphere_variables,
+                **self.openstack_variables,
                 "image_path": self.image_path,
                 "image_id": self.image_id
             })

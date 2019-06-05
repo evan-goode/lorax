@@ -23,6 +23,7 @@ class AzureUpload(Upload):
     """An upload to Microsoft Azure"""
 
     def __init__(self, image_name, image_path, azure_variables):
+        self.validate_variables(azure_variables)
         super().__init__(image_name, image_path, extension="vhd")
         self.azure_variables = azure_variables
 

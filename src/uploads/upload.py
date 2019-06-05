@@ -22,9 +22,6 @@ from enum import Enum, auto
 from subprocess import run, PIPE, STDOUT
 from uuid import uuid4
 
-# requires: ansible, python3-msrestazure
-# pip: ansible[azure]
-
 CHUNK_SIZE = 65536 # 64 kibibytes
 
 class UploadError(Exception):
