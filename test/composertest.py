@@ -57,7 +57,8 @@ class ComposerTestCase(unittest.TestCase):
     def tearDown(self):
         # Peek into internal data structure, because there's no way to get the
         # TestResult at this point. `errors` is a list of tuples (method, error)
-        errors = filter(None, [ e[1] for e in self._outcome.errors ])
+        errors = list(e[1] for e in self._outcome.errors if e[1])
+
         if errors and self.sit:
             for e in errors:
                 print_exception(*e)
@@ -76,9 +77,14 @@ class ComposerTestCase(unittest.TestCase):
         return subprocess.run(self.ssh_command + command, **args)
 
     def runCliTest(self, script):
+        extra_env = []
+        if self.sit:
+            extra_env.append("COMPOSER_TEST_FAIL_FAST=1")
+
         r = self.execute(["CLI=/usr/bin/composer-cli",
                           "TEST=" + self.id(),
                           "PACKAGE=composer-cli",
+                          *extra_env,
                           "/tests/test_cli.sh", script])
         self.assertEqual(r.returncode, 0)
 
