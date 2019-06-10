@@ -3,4 +3,4 @@ known requirements so far:
 	python3-openstacksdk
 	python3-boto3
 	python3-msrestazure
-
+	python3-google-auth
