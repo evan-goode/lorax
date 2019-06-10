@@ -15,6 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+# NOTICE: Needs this patch: https://github.com/ansible/ansible/pull/57141
+
 import json
 from subprocess import CalledProcessError
 
@@ -30,7 +32,8 @@ class GoogleUpload(Upload):
         self.google_variables = google_variables
         self.service_account_object = json.loads(self.google_variables["service_account_contents"])
 
-    # TODO document and fix "overwrite: no" bug
+    # TODO We would like `overwrite: no`, but Ansible throws a strange error
+    # when it is set
     upload_image = """
 - hosts: localhost
   connection: local
@@ -42,11 +45,12 @@ class GoogleUpload(Upload):
       project: "{{ project }}"
       bucket: "{{ bucket }}"
       action: upload
-      overwrite: yes # must be "yes" unfortunately, Ansible has a bug
+      overwrite: yes
       src: "{{ image_path }}"
       dest: "{{ image_id }}"
     """
 
+    # TODO
     import_image = """
 - hosts: localhost
   connection: local
@@ -64,10 +68,7 @@ class GoogleUpload(Upload):
 
     @staticmethod
     def validate_variables(variables):
-        expected_variables = (
-            "service_account_contents", "bucket", "project"
-        )
-        for expected in expected_variables:
+        for expected in ("service_account_contents", "bucket", "project"):
             if expected not in variables:
                 raise ValueError(f"Variable {expected} expected but was not found!")
 
@@ -85,6 +86,7 @@ class GoogleUpload(Upload):
             raise UploadError("Image upload failed!") from error
         self._log("Image uploaded.")
 
+        self._log("Importing image...")
         try:
             self._run_playbook(self.import_image, {
                 **self.google_variables,
