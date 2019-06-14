@@ -22,15 +22,13 @@ from subprocess import CalledProcessError
 import boto3
 from botocore.exceptions import BotoCoreError
 
-from upload import Upload, UploadError
+from pylorax.uploads.upload import Upload, UploadError
 
 class AWSUpload(Upload):
     """An upload to Amazon Web Services"""
 
-    def __init__(self, image_name, image_path, aws_variables):
-        self.validate_variables(aws_variables)
-        super().__init__(image_name, image_path, extension="ami")
-        self.aws_variables = aws_variables
+    def __init__(self, image_name, image_path, settings, status_callback):
+        super().__init__(image_name, image_path, settings, status_callback, extension="ami")
 
     test_credentials = """
 - hosts: localhost
@@ -127,16 +125,16 @@ class AWSUpload(Upload):
 """
 
     @staticmethod
-    def validate_variables(variables):
-        expected_variables = [
+    def validate_settings(settings):
+        expected_settings = [
             "access_key", "secret_key", "s3_bucket", "region_name"
         ]
         can_be_empty = frozenset(("access_key", "secret_key", "region_name"))
-        for expected in expected_variables:
-            if expected not in variables:
-                raise ValueError(f'Variable {expected} expected but was not found!')
-            if not variables[expected] and expected not in can_be_empty:
-                raise ValueError(f'Variable {expected} cannot be empty!')
+        for expected in expected_settings:
+            if expected not in settings:
+                raise ValueError(f'Setting {expected} expected but was not found!')
+            if not settings[expected] and expected not in can_be_empty:
+                raise ValueError(f'Setting {expected} cannot be empty!')
 
     def _import_snapshot(self):
         """Imports an image stored on S3 as an EC2 snapshot

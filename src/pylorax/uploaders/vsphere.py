@@ -17,17 +17,15 @@
 
 from subprocess import CalledProcessError
 
-from upload import Upload, UploadError, UploadStatus
+from pylorax.uploaders.uploader import Uploader, UploadError, UploaderStatus
 
-class VSphereUpload(Upload):
-    """An upload to VMWare vSphere"""
+class VSphereUploader(Uploader):
+    """Uploads to VMWare vSphere"""
 
-    def __init__(self, image_name, image_path, vsphere_variables):
-        self.validate_variables(vsphere_variables)
-        super().__init__(image_name, image_path, extension="vmdk")
-        self.vsphere_variables = vsphere_variables
-        if "folder" not in vsphere_variables:
-            self.vsphere_variables["folder"] = "."
+    def __init__(self, image_name, image_path, settings, status_callback):
+        super().__init__(image_name, image_path, settings, status_callback, extension="vmdk")
+        if "folder" not in settings:
+            self.settings["folder"] = "."
 
     upload_image = """
 - hosts: localhost
@@ -45,20 +43,20 @@ class VSphereUpload(Upload):
     """
 
     @staticmethod
-    def validate_variables(variables):
-        expected_variables = [
+    def validate_settings(settings):
+        expected_settings = [
             "datacenter", "datastore", "host", "username", "password"
         ]
-        for expected in expected_variables:
-            if expected not in variables:
-                raise ValueError(f'Variable "{expected}" expected but was not found!')
+        for expected in expected_settings:
+            if expected not in settings:
+                raise ValueError(f'Setting "{expected}" expected but was not found!')
 
     def _upload(self):
-        datastore = self.vsphere_variables["datastore"]
+        datastore = self.settings["datastore"]
         self._log(f"Uploading image {self.image_path} to datastore {datastore}...")
         try:
             self._run_playbook(self.upload_image, {
-                **self.vsphere_variables,
+                **self.settings,
                 "image_path": self.image_path,
                 "image_id": self.image_id
             })

@@ -1008,6 +1008,7 @@ from pylorax.api.recipes import RecipeError, list_branch_files, read_recipe_comm
 from pylorax.api.recipes import recipe_from_dict, recipe_from_toml, commit_recipe, delete_recipe, revert_recipe
 from pylorax.api.recipes import tag_recipe_commit, recipe_diff, RecipeFileError
 from pylorax.api.regexes import VALID_API_STRING
+from pylorax.api.upload_queue import start_upload
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 # The API functions don't actually get called by any code here
@@ -2048,3 +2049,15 @@ def v0_api(api):
             return Response(uuid_log(api.config["COMPOSER_CFG"], uuid, size), direct_passthrough=True)
         except RuntimeError as e:
             return jsonify(status=False, errors=[{"id": COMPOSE_ERROR, "msg": str(e)}]), 400
+    
+    @api.route("/api/v0/compose/upload", defaults={'uuid': ""}, methods=["POST"])
+    @api.route("/api/v0/compose/upload/<uuid>", methods=["POST"])
+    @checkparams([("uuid", "", "no UUID given")])
+    def v0_compose_upload(uuid):
+        """Start uploading an image to the cloud provider associated with the type of that image"""
+        parsed = request.get_json(cache=False)
+        settings = parsed["settings"]
+        image_name = parsed["image_name"]
+
+        results = start_upload(api.config["COMPOSER_CFG"], uuid, image_name, settings)
+        return jsonify(status=True, **results)

@@ -15,12 +15,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import hashlib
-import json
 from abc import ABC, abstractmethod
 from enum import Enum, auto
+import hashlib
+import json
+from multiprocessing import current_process
 from subprocess import run, PIPE, STDOUT
-from uuid import uuid4
+
+import logging
+log = logging.getLogger("pylorax")
 
 CHUNK_SIZE = 65536 # 64 kibibytes
 
@@ -41,38 +44,43 @@ def hash_image(path):
             checksum.update(chunk)
     return checksum.hexdigest()
 
-class UploadStatus(Enum):
-    """Uploads start as WAITING, then RUNNING, then FINISHED or FAILED."""
+class UploaderStatus(Enum):
+    """Uploaders start as WAITING, then RUNNING, then FINISHED or FAILED."""
     WAITING = auto()
     RUNNING = auto()
     FINISHED = auto()
     FAILED = auto()
+    CANCELLED = auto()
 
-class Upload(ABC):
-    """An upload of a composed image to an abstract cloud provider.
-    Subclasses represent uploads to different providers."""
+class Uploader(ABC):
+    """Uploads a composed image to an abstract cloud provider.
+    Subclasses represent uploaders for different providers."""
 
-    def __init__(self, image_name, image_path, extension="img"):
+    def __init__(self, image_name, image_path, settings, status_callback=None, extension="img"):
+        self.validate_settings(settings)
+        self.settings = settings
         self.image_name = image_name
         self.image_path = image_path
-        print("hashing image")
         self.image_hash = hash_image(image_path)
-        print("done hashing, hash is", self.image_hash)
         self.image_id = f"{image_name}-{self.image_hash}.{extension}"
-
+        self.status_callback = status_callback
         self.upload_log = ""
-        self.status = UploadStatus.WAITING
-        self.uuid = str(uuid4())
         self.error = None
+        self.status = UploaderStatus.WAITING
+
+    def set_status(self, status):
+        self.status = status
+        if self.status_callback:
+            self.status_callback()
 
     @staticmethod
     @abstractmethod
-    def validate_variables(variables):
-        """Validates upload variables
+    def validate_settings(settings):
+        """Validates uploader settings
 
-        :param variables: a dict of variables used by the upload
-        :type variables: dict
-        :raises: ValueError if any expected variables are missing, or if any are invalid
+        :param settings: a dict of settings used by the uploader
+        :type settings: dict
+        :raises: ValueError if any expected settings are missing, or if any are invalid
         """
 
     def _log(self, message):
@@ -82,7 +90,7 @@ class Upload(ABC):
         :type message: object
         """
         self.upload_log += f"{message}\n"
-        print(message) # TODO
+        log.info(message) # TODO
 
     def _run_playbook(self, playbook, variables=None):
         """Run ansible-playbook on a playbook string
@@ -116,12 +124,14 @@ class Upload(ABC):
     def upload(self):
         """Error-handling wrapper around _upload"""
         try:
-            if self.status is not UploadStatus.WAITING:
+            if self.status is not UploaderStatus.WAITING:
                 raise UploadError("This upload has already been attempted!")
-            self.status = UploadStatus.RUNNING
+            self.current_process = current_process()
+            self.set_status(UploaderStatus.RUNNING)
             self._upload()
+            self.current_process = None
+            self.set_status(UploaderStatus.FINISHED)
         except UploadError as error:
             self._log(error)
             self.error = error
-            self.status = UploadStatus.FAILED
-        self.status = UploadStatus.FINISHED
+            self.set_status(UploaderStatus.FAILED)
