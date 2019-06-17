@@ -15,7 +15,29 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from pylorax.uploaders.upload import Uploader, UploaderStatus
-# from pylorax.uploaders.aws import AWSUploader
-from pylorax.uploaders.vsphere import VSphereUploader
-from pylorax.uploaders.dummy import DummyUploader
+from subprocess import CalledProcessError
+
+from pylorax.uploaders.uploader import Uploader, UploadError
+
+
+class DummyUploader(Uploader):
+    """A dummy uploader for testing and development. Waits 30 seconds."""
+
+    wait = """
+- hosts: localhost
+  connection: local
+  tasks:
+  - pause: seconds=30
+    """
+
+    @staticmethod
+    def validate_settings(settings):
+        pass
+
+    def _upload(self):
+        self._log(f"Waiting...")
+        try:
+            self._run_playbook(self.wait, {"image_path": self.image_path})
+        except CalledProcessError as error:
+            raise UploadError("Waiting failed! (???)") from error
+        self._log("Waiting finished.")

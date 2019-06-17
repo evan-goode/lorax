@@ -17,26 +17,29 @@
 
 from datetime import datetime
 from glob import glob
-import json
 import logging
 import multiprocessing
+
+# We use multiprocessing processes for uploads so that we can cancel them with
+# a simple SIGTERM, which bubbles down to the Ansible subprocesses.
+ 
 from multiprocessing.dummy import Process
 from multiprocessing import Pool, current_process
-from operator import attrgetter
 import os
 import pickle
+import signal
 import time
 from uuid import uuid4
 
 from pylorax.sysutils import joinpaths
-from pylorax.uploaders import UploaderStatus, VSphereUploader
+from pylorax.uploaders import UploaderStatus, DummyUploader
 from pylorax.api.queue import uuid_status, uuid_image
-
-import dill
 
 SIMULTANEOUS_UPLOADS = 1
 
 log = logging.getLogger("pylorax")
+
+mpl = multiprocessing.log_to_stderr().setLevel(logging.INFO)
 
 def get_queue_path(cfg):
     path = joinpaths(cfg.get("composer", "lib_dir"), "upload_queue")
@@ -48,10 +51,14 @@ def list_upload_uuids(cfg):
 
 def get_upload(cfg, uuid):
     with open(joinpaths(get_queue_path(cfg), uuid), "rb") as pickle_file:
-        return pickle.load(pickle_file)
+        try:
+            return pickle.load(pickle_file)
+        except:
+            return None
 
 def get_all_uploads(cfg):
-    return [get_upload(cfg, uuid) for uuid in list_upload_uuids(cfg)]
+    uploads = [get_upload(cfg, uuid) for uuid in list_upload_uuids(cfg)]
+    return [upload for upload in uploads if upload]
 
 def cancel_upload(cfg, uuid):
     get_upload(cfg, uuid).cancel()
@@ -61,27 +68,31 @@ class Upload:
         self.cfg = cfg
         self.uuid = str(uuid4())
         self.timestamp = datetime.now()
-        self.upload_process = None
+        self.upload_pid = None
         self.uploader = uploader_type(image_name, image_path, settings, status_callback=self.write)
+
     def write(self):
         with open(joinpaths(get_queue_path(self.cfg), self.uuid), "wb") as upload_file:
             pickle.dump(self, upload_file, protocol=pickle.HIGHEST_PROTOCOL)
     def execute(self):
-        self.upload_process = current_process()
-        log.info(f"executing {self.uuid}, pid is {self.upload_process}")
+        self.upload_pid = current_process().pid
+        log.info(f"upload pid for {self.uuid} is {self.upload_pid}")
         self.uploader.upload()
     def cancel(self):
-        if self.uploader.status not in frozenset((UploaderStatus.WAITING, UploaderStatus.RUNNING)):
+        log.info("cancelling...")
+        if str(self.uploader.status) not in frozenset((str(UploaderStatus.WAITING), str(UploaderStatus.RUNNING))):
             raise RuntimeError(f"Can't cancel if status is {self.uploader.status}")
-        if self.upload_process:
-            self.upload_process.terminate()
+        log.info("got here...")
+        if self.upload_pid:
+            os.kill(self.upload_pid, signal.SIGTERM)
+            log.info("sent kill")
         self.uploader.set_status(UploaderStatus.CANCELLED)
 
 def start_upload(cfg, compose_uuid, image_name, settings):
     status = uuid_status(cfg, compose_uuid)
     uploader_type = {
         # "ami": AWSUploader,
-        "vmdk": VSphereUploader
+        "vmdk": DummyUploader
     }[status["compose_type"]]
     _, image_path = uuid_image(cfg, compose_uuid)
     Upload(cfg, uploader_type, image_name, image_path, settings).write()
@@ -93,19 +104,21 @@ def start_upload_monitor(cfg):
     process.start()
 
 def monitor(cfg):
-    multiprocessing.log_to_stderr()
     for upload in get_all_uploads(cfg):
-        if upload.uploader.status is UploaderStatus.RUNNING:
+        if str(upload.uploader.status) == str(UploaderStatus.RUNNING):
+            log.info(f"upload {upload.uuid} abandoned, setting to failed")
             upload.uploader.set_status(UploaderStatus.FAILED)
     pool = Pool(processes=SIMULTANEOUS_UPLOADS)
     pool_uuids = set()
     while True:
+        log.info("yeeted once again")
         for upload in get_all_uploads(cfg):
             log.info(f"now doing {upload.uuid}, set is {pool_uuids}, status is {upload.uploader.status}, other is {UploaderStatus.WAITING}")
             if upload.uuid not in pool_uuids and str(upload.uploader.status) == str(UploaderStatus.WAITING):
                 log.info("adding...")
                 pool_uuids.add(upload.uuid)
-                result = pool.apply(upload.execute)
-                log.info(f"result is {result}")
-                log.info(f"added {upload.uuid}")
+                pool.apply_async(upload.execute)
+                time.sleep(10)
+                log.info(f"time's up, cancelling {upload.uuid}")
+                cancel_upload(cfg, upload.uuid)
         time.sleep(1)

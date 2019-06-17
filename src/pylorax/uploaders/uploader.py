@@ -19,7 +19,6 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 import hashlib
 import json
-from multiprocessing import current_process
 from subprocess import run, PIPE, STDOUT
 
 import logging
@@ -90,6 +89,8 @@ class Uploader(ABC):
         :type message: object
         """
         self.upload_log += f"{message}\n"
+        with open("/tmp/supplemental_log", "a") as suplog:
+            suplog.write(f"{message}\n")
         log.info(message) # TODO
 
     def _run_playbook(self, playbook, variables=None):
@@ -126,10 +127,8 @@ class Uploader(ABC):
         try:
             if self.status is not UploaderStatus.WAITING:
                 raise UploadError("This upload has already been attempted!")
-            self.current_process = current_process()
             self.set_status(UploaderStatus.RUNNING)
             self._upload()
-            self.current_process = None
             self.set_status(UploaderStatus.FINISHED)
         except UploadError as error:
             self._log(error)
