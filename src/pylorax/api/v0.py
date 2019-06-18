@@ -1008,7 +1008,6 @@ from pylorax.api.recipes import RecipeError, list_branch_files, read_recipe_comm
 from pylorax.api.recipes import recipe_from_dict, recipe_from_toml, commit_recipe, delete_recipe, revert_recipe
 from pylorax.api.recipes import tag_recipe_commit, recipe_diff, RecipeFileError
 from pylorax.api.regexes import VALID_API_STRING
-from pylorax.api.upload_queue import start_upload
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 # The API functions don't actually get called by any code here
@@ -2050,14 +2049,53 @@ def v0_api(api):
         except RuntimeError as e:
             return jsonify(status=False, errors=[{"id": COMPOSE_ERROR, "msg": str(e)}]), 400
     
-    @api.route("/api/v0/compose/upload", defaults={'uuid': ""}, methods=["POST"])
-    @api.route("/api/v0/compose/upload/<uuid>", methods=["POST"])
-    @checkparams([("uuid", "", "no UUID given")])
-    def v0_compose_upload(uuid):
-        """Start uploading an image to the cloud provider associated with the type of that image"""
-        parsed = request.get_json(cache=False)
-        settings = parsed["settings"]
-        image_name = parsed["image_name"]
+    # I'll hold off working on these in case we decide to put upload
+    # functionality somewhere else
 
-        results = start_upload(api.config["COMPOSER_CFG"], uuid, image_name, settings)
-        return jsonify(status=True, **results)
+    # @api.route("/api/v0/upload", defaults={'compose_uuid': ""}, methods=["POST"])
+    # @api.route("/api/v0/upload/<compose_uuid>", methods=["POST"])
+    # @checkparams([("compose_uuid", "", "no compose UUID given")])
+    # def v0_upload(compose_uuid):
+    #     """Start uploading an image to the cloud provider associated with the type of that image"""
+    #     parsed = request.get_json(cache=False)
+    #     settings = parsed["settings"]
+    #     cloud_image_name = parsed["image_name"]
+
+    #     uuid = start_upload(api.config["COMPOSER_CFG"], compose_uuid, cloud_image_name, settings)
+    #     return jsonify(status=True, uuid=uuid)
+
+    # @api.route("/api/v0/upload/uploads")
+    # def v0_uploads():
+    #     """Returns information about all uploads"""
+    #     return jsonify(get_upload_summaries(api.config["COMPOSER_CFG"]))
+
+    # @api.route("/api/v0/upload/info", defaults={"uuid": ""})
+    # @api.route("/api/v0/upload/info/<uuid>")
+    # @checkparams([("uuid", "", "no UUID given")])
+    # def v0_uploads(uuid):
+    #     """Returns information about a given upload"""
+    #     return jsonify(get_upload_summary(api.config["COMPOSER_CFG"], uuid))
+    
+    # @api.route("/api/v0/upload/cancel", defaults={"uuid": ""}, methods=["POST"])
+    # @api.route("/api/v0/upload/cancel/<uuid>", method=["POST"])
+    # @checkparams([("uuid", "", "no UUID given")])
+    # def v0_upload_cancel(uuid):
+    #     """Cancel an upload that is either queued or in progress"""
+    #     try:
+    #         cancel_upload(api.config["COMPOSER_CFG"], uuid)
+    #     except RuntimeError as error:
+    #         # TODO more specific errors
+    #         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+    #     return jsonify(status=True, uuid=uuid)
+
+    # @api.route("/api/v0/upload/delete", defaults={"uuid": ""}, methods=["POST"])
+    # @api.route("/api/v0/upload/delete/<uuid>", method=["POST"])
+    # @checkparams([("uuid", "", "no UUID given")])
+    # def v0_upload_delete(uuid):
+    #     """Delete a successful, failed, or cancelled upload"""
+    #     try:
+    #         delete_upload(api.config["COMPOSER_CFG"], uuid)
+    #     except RuntimeError as error:
+    #         # TODO more specific errors
+    #         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+    #     return jsonify(status=True, uuid=uuid)

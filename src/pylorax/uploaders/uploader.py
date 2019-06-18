@@ -16,18 +16,17 @@
 #
 
 from abc import ABC, abstractmethod
-from enum import Enum, auto
+from enum import Enum
 import hashlib
 import json
 from subprocess import run, PIPE, STDOUT
 
-import logging
-log = logging.getLogger("pylorax")
+CHUNK_SIZE = 65536  # 64 kibibytes
 
-CHUNK_SIZE = 65536 # 64 kibibytes
 
 class UploadError(Exception):
     """Meant to be thrown during upload and gracefully caught"""
+
 
 def hash_image(path):
     """Returns the SHA-256 checksum of a file
@@ -43,31 +42,47 @@ def hash_image(path):
             checksum.update(chunk)
     return checksum.hexdigest()
 
+
 class UploaderStatus(Enum):
-    """Uploaders start as WAITING, then RUNNING, then FINISHED or FAILED."""
-    WAITING = auto()
-    RUNNING = auto()
-    FINISHED = auto()
-    FAILED = auto()
-    CANCELLED = auto()
+    """Uploaders start as WAITING, then RUNNING, then FINISHED, FAILED, or
+    CANCELLED."""
+
+    WAITING = "WAITING"
+    RUNNING = "RUNNING"
+    FINISHED = "FINISHED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
 
 class Uploader(ABC):
     """Uploads a composed image to an abstract cloud provider.
     Subclasses represent uploaders for different providers."""
 
-    def __init__(self, image_name, image_path, settings, status_callback=None, extension="img"):
+    def __init__(
+        self,
+        cloud_image_name,
+        image_path,
+        settings,
+        status_callback=None,
+        extension="img",
+    ):
         self.validate_settings(settings)
         self.settings = settings
-        self.image_name = image_name
+        self.cloud_image_name = cloud_image_name
         self.image_path = image_path
         self.image_hash = hash_image(image_path)
-        self.image_id = f"{image_name}-{self.image_hash}.{extension}"
+        self.image_id = f"{cloud_image_name}-{self.image_hash}.{extension}"
         self.status_callback = status_callback
         self.upload_log = ""
         self.error = None
         self.status = UploaderStatus.WAITING
 
     def set_status(self, status):
+        """Sets the status of the uploader
+
+        :param status: the new status
+        :type status: UploaderStatus
+        """
         self.status = status
         if self.status_callback:
             self.status_callback()
@@ -79,7 +94,16 @@ class Uploader(ABC):
 
         :param settings: a dict of settings used by the uploader
         :type settings: dict
-        :raises: ValueError if any expected settings are missing, or if any are invalid
+        :raises: ValueError if any settings are missing or invalid
+        """
+
+    @staticmethod
+    @abstractmethod
+    def get_provider():
+        """Gets the name of the cloud provider the uploader is for, e.g. AWS
+
+        :returns: name of the cloud provider
+        :rtype: str
         """
 
     def _log(self, message):
@@ -89,9 +113,6 @@ class Uploader(ABC):
         :type message: object
         """
         self.upload_log += f"{message}\n"
-        with open("/tmp/supplemental_log", "a") as suplog:
-            suplog.write(f"{message}\n")
-        log.info(message) # TODO
 
     def _run_playbook(self, playbook, variables=None):
         """Run ansible-playbook on a playbook string
@@ -106,11 +127,13 @@ class Uploader(ABC):
         :rtype: CompletedProcess
         :raises: CalledProcessError if ansible-playbook exited with a non-zero return code
         """
-        result = run(["ansible-playbook", "/dev/stdin", "--extra-vars", json.dumps(variables)],
-                     stdout=PIPE,
-                     stderr=STDOUT,
-                     input=playbook,
-                     encoding='utf-8')
+        result = run(
+            ["ansible-playbook", "/dev/stdin", "--extra-vars", json.dumps(variables)],
+            stdout=PIPE,
+            stderr=STDOUT,
+            input=playbook,
+            encoding="utf-8",
+        )
         self._log(result.stdout)
         result.check_returncode()
         return result

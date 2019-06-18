@@ -34,6 +34,10 @@ class DummyUploader(Uploader):
     def validate_settings(settings):
         pass
 
+    @staticmethod
+    def get_provider():
+        return "Dummy"
+
     def _upload(self):
         self._log(f"Waiting...")
         try:
