@@ -20,6 +20,7 @@ from datetime import datetime
 from enum import Enum
 import hashlib
 import json
+import logging
 from multiprocessing import current_process
 import os
 import signal
@@ -27,6 +28,8 @@ from subprocess import run, PIPE, STDOUT
 from uuid import uuid4
 
 CHUNK_SIZE = 65536  # 64 kibibytes
+
+LOG = logging.getLogger("lifted")
 
 
 class UploadError(Exception):
@@ -95,11 +98,6 @@ class Upload(ABC):
         :rtype: str
         """
 
-    @staticmethod
-    @abstractmethod
-    def get_extension():
-        pass
-
     def _log(self, message):
         """Logs something to the upload log
 
@@ -121,6 +119,7 @@ class Upload(ABC):
         :rtype: CompletedProcess
         :raises: CalledProcessError if ansible-playbook exited with a non-zero return code
         """
+        # We may want to switch to ansible-runner for better error handling.
         result = run(
             ["ansible-playbook", "/dev/stdin", "--extra-vars", json.dumps(variables)],
             stdout=PIPE,
@@ -162,30 +161,31 @@ class Upload(ABC):
             status_callback(self)
 
     def ready(self, image_path, status_callback):
-        if self.status is not UploadStatus.WAITING:
-            raise RuntimeError(f"Can't mark as ready if status is {self.status}!")
+        """Provide an image_path and mark as ready to execute"""
         self.image_path = image_path
-        self.set_status(UploadStatus.READY, status_callback)
+        if self.status is UploadStatus.WAITING:
+            self.set_status(UploadStatus.READY, status_callback)
 
     def is_cancellable(self):
-        return self.status in frozenset((
-            UploadStatus.WAITING, UploadStatus.READY, UploadStatus.RUNNING
-        ))
+        """Is the upload in a cancellable state?"""
+        return self.status in (
+            UploadStatus.WAITING,
+            UploadStatus.READY,
+            UploadStatus.RUNNING,
+        )
 
     def cancel(self, status_callback=None):
         """Cancel the upload. Sends a SIGTERM to self.upload_pid"""
         if not self.is_cancellable():
-            raise RuntimeError(
-                f"Can't cancel, status is already {self.uploader.status}!"
-            )
+            raise RuntimeError(f"Can't cancel, status is already {self.status.value}!")
         if self.upload_pid:
-            os.kill(self.upload_pid, signal.SIGTERM)
+            os.kill(self.upload_pid, signal.SIGINT)
         self.set_status(UploadStatus.CANCELLED, status_callback)
 
     def execute(self, status_callback=None):
         """Error-handling wrapper around _upload"""
-        if self.status is not UploadStatus.WAITING:
-            raise RuntimeError("This upload has already been attempted!")
+        if self.status is not UploadStatus.READY:
+            raise RuntimeError("This upload is not ready!")
         try:
             self.upload_pid = current_process().pid
             self.set_status(UploadStatus.RUNNING, status_callback)

@@ -23,6 +23,7 @@ program_log = logging.getLogger("program")
 pylorax_log = logging.getLogger("pylorax")
 server_log = logging.getLogger("server")
 dnf_log = logging.getLogger("dnf")
+lifted_log = logging.getLogger("lifted")
 
 import grp
 import os
@@ -58,6 +59,7 @@ def setup_logging(logfile):
     sh.setFormatter(fmt)
     log.addHandler(sh)
     pylorax_log.addHandler(sh)
+    lifted_log.addHandler(sh)
 
     fh = logging.FileHandler(filename=logfile)
     fh.setLevel(logging.DEBUG)
@@ -65,6 +67,7 @@ def setup_logging(logfile):
     fh.setFormatter(fmt)
     log.addHandler(fh)
     pylorax_log.addHandler(fh)
+    lifted_log.addHandler(fh)
 
     # External program output log
     program_log.setLevel(logging.DEBUG)

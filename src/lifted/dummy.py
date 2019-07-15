@@ -38,10 +38,6 @@ class DummyUpload(Upload):
     def get_provider():
         return "Dummy"
 
-    @staticmethod
-    def get_extension():
-        return "img"
-
     def _upload(self):
         self._log(f"Waiting...")
         try:
