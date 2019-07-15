@@ -62,6 +62,9 @@ PROJECTS_ERROR = "ProjectsError"
 # Returned from the API when someone tries to modify an immutable system source.
 SYSTEM_SOURCE = "SystemSource"
 
+# Returned from the API for all errors from a /upload/* route.
+UPLOAD_ERROR = "UploadError"
+
 # Returned from the API when a blueprint that was requested does not exist.
 UNKNOWN_BLUEPRINT = "UnknownBlueprint"
 

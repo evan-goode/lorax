@@ -16,10 +16,15 @@
 #
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from enum import Enum
 import hashlib
 import json
+from multiprocessing import current_process
+import os
+import signal
 from subprocess import run, PIPE, STDOUT
+from uuid import uuid4
 
 CHUNK_SIZE = 65536  # 64 kibibytes
 
@@ -43,49 +48,33 @@ def hash_image(path):
     return checksum.hexdigest()
 
 
-class UploaderStatus(Enum):
-    """Uploaders start as WAITING, then RUNNING, then FINISHED, FAILED, or
-    CANCELLED."""
+class UploadStatus(Enum):
+    """Uploads start as WAITING, become READY when they get an image_path,
+    then RUNNING, then FINISHED, FAILED, or CANCELLED."""
 
     WAITING = "WAITING"
+    READY = "READY"
     RUNNING = "RUNNING"
     FINISHED = "FINISHED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
 
 
-class Uploader(ABC):
-    """Uploads a composed image to an abstract cloud provider.
-    Subclasses represent uploaders for different providers."""
+class Upload(ABC):
+    """An upload of a composed image to an abstract cloud provider.
+    Subclasses represent uploads to different providers."""
 
-    def __init__(
-        self,
-        cloud_image_name,
-        image_path,
-        settings,
-        status_callback=None,
-        extension="img",
-    ):
+    def __init__(self, cloud_image_name, settings, status_callback=None):
         self.validate_settings(settings)
         self.settings = settings
         self.cloud_image_name = cloud_image_name
-        self.image_path = image_path
-        self.image_hash = hash_image(image_path)
-        self.image_id = f"{cloud_image_name}-{self.image_hash}.{extension}"
-        self.status_callback = status_callback
+        self.uuid = str(uuid4())
+        self.creation_time = datetime.now().timestamp()
         self.upload_log = ""
         self.error = None
-        self.status = UploaderStatus.WAITING
-
-    def set_status(self, status):
-        """Sets the status of the uploader
-
-        :param status: the new status
-        :type status: UploaderStatus
-        """
-        self.status = status
-        if self.status_callback:
-            self.status_callback()
+        self.image_path = None
+        self.upload_pid = None
+        self.set_status(UploadStatus.WAITING, status_callback)
 
     @staticmethod
     @abstractmethod
@@ -105,6 +94,11 @@ class Uploader(ABC):
         :returns: name of the cloud provider
         :rtype: str
         """
+
+    @staticmethod
+    @abstractmethod
+    def get_extension():
+        pass
 
     def _log(self, message):
         """Logs something to the upload log
@@ -145,15 +139,61 @@ class Uploader(ABC):
         :raises: UploadError
         """
 
-    def upload(self):
+    def summary(self):
+        """Return a dict with useful information about the upload
+
+        :returns: upload information
+        :rtype: dict
+        """
+        return {
+            "uuid": self.uuid,
+            "status": self.status.value,
+            "provider": self.get_provider(),
+            "cloud_image_name": self.cloud_image_name,
+            "image_path": self.image_path,
+            "creation_time": self.creation_time,
+            "error": self.error,
+        }
+
+    def set_status(self, status, status_callback=None):
+        """Sets the status of the upload with an optional callback"""
+        self.status = status
+        if status_callback:
+            status_callback(self)
+
+    def ready(self, image_path, status_callback):
+        if self.status is not UploadStatus.WAITING:
+            raise RuntimeError(f"Can't mark as ready if status is {self.status}!")
+        self.image_path = image_path
+        self.set_status(UploadStatus.READY, status_callback)
+
+    def is_cancellable(self):
+        return self.status in frozenset((
+            UploadStatus.WAITING, UploadStatus.READY, UploadStatus.RUNNING
+        ))
+
+    def cancel(self, status_callback=None):
+        """Cancel the upload. Sends a SIGTERM to self.upload_pid"""
+        if not self.is_cancellable():
+            raise RuntimeError(
+                f"Can't cancel, status is already {self.uploader.status}!"
+            )
+        if self.upload_pid:
+            os.kill(self.upload_pid, signal.SIGTERM)
+        self.set_status(UploadStatus.CANCELLED, status_callback)
+
+    def execute(self, status_callback=None):
         """Error-handling wrapper around _upload"""
+        if self.status is not UploadStatus.WAITING:
+            raise RuntimeError("This upload has already been attempted!")
         try:
-            if self.status is not UploaderStatus.WAITING:
-                raise UploadError("This upload has already been attempted!")
-            self.set_status(UploaderStatus.RUNNING)
+            self.upload_pid = current_process().pid
+            self.set_status(UploadStatus.RUNNING, status_callback)
+            # self.image_hash = hash_image(image_path)
+            # self.image_id = f"{cloud_image_name}-{self.image_hash}.{self.get_extension()}"
             self._upload()
-            self.set_status(UploaderStatus.FINISHED)
+            self.set_status(UploadStatus.FINISHED, status_callback)
         except UploadError as error:
             self._log(error)
             self.error = error
-            self.set_status(UploaderStatus.FAILED)
+            self.set_status(UploadStatus.FAILED, status_callback)

@@ -40,9 +40,10 @@ from pylorax.api.config import configure, make_dnf_dirs, make_queue_dirs, make_o
 from pylorax.api.compose import test_templates
 from pylorax.api.dnfbase import DNFLock
 from pylorax.api.queue import start_queue_monitor
-from pylorax.api.upload_queue import start_upload_monitor
 from pylorax.api.recipes import open_or_create_repo, commit_recipe_directory
 from pylorax.api.server import server, GitLock
+
+from lifted.queue import start_upload_monitor
 
 VERSION = "{0}-{1}".format(os.path.basename(sys.argv[0]), vernum)
 
@@ -244,7 +245,8 @@ if __name__ == '__main__':
         listener.listen(socket.SOMAXCONN)
 
     start_queue_monitor(server.config["COMPOSER_CFG"], uid, gid)
-    start_upload_monitor(server.config["COMPOSER_CFG"])
+
+    start_upload_monitor(server.config["COMPOSER_CFG"]["upload"])
 
     # Change user and group on the main process.  Note that this still happens even if
     # --user and --group were passed in, but changing to the same user should be fine.

@@ -36,6 +36,8 @@ from pylorax.base import DataHolder
 from pylorax.creator import run_creator
 from pylorax.sysutils import joinpaths
 
+from lifted.queue import get_upload
+
 def check_queues(cfg):
     """Check to make sure the new and run queue symlinks are correct
 
@@ -91,7 +93,8 @@ def start_queue_monitor(cfg, uid, gid):
     lib_dir = cfg.get("composer", "lib_dir")
     share_dir = cfg.get("composer", "share_dir")
     tmp = cfg.get("composer", "tmp")
-    monitor_cfg = DataHolder(composer_dir=lib_dir, share_dir=share_dir, uid=uid, gid=gid, tmp=tmp)
+    upload_cfg = cfg["upload"]
+    monitor_cfg = DataHolder(cfg=cfg, composer_dir=lib_dir, share_dir=share_dir, uid=uid, gid=gid, tmp=tmp)
     p = mp.Process(target=monitor, args=(monitor_cfg,))
     p.daemon = True
     p.start()
@@ -144,6 +147,10 @@ def monitor(cfg):
                 log.info("Finished building %s, results are in %s", dst, os.path.realpath(dst))
                 open(joinpaths(dst, "STATUS"), "w").write("FINISHED\n")
                 write_timestamp(dst, TS_FINISHED)
+
+                for upload in uuid_get_uploads(cfg.cfg, uuid):
+                    log.info(f"readying upload {upload.uuid} with path {os.path.realpath(dst)}")
+                    ready_upload(cfg.cfg["upload"], upload.uuid, os.path.realpath(dst))
             except Exception:
                 import traceback
                 log.error("traceback: %s", traceback.format_exc())
@@ -415,6 +422,31 @@ def build_status(cfg, status_filter=None):
         except IOError:
             pass
     return results
+
+def _upload_list_path(cfg, uuid):
+    return joinpaths(cfg.get("composer", "lib_dir"), "results", uuid, "UPLOADS")
+
+def uuid_get_uploads(cfg, uuid):
+    try:
+        with open(_upload_list_path(cfg, uuid), "r") as uploads_file:
+            upload_uuids = uploads_file.read().split()
+            uploads = frozenset(
+                get_upload(cfg["upload"], upload_uuid, ignore_missing=True, ignore_corrupt=True)
+                for upload_uuid in upload_uuids
+            )
+            return filter(None, uploads)
+    except FileNotFoundError:
+        return frozenset()
+
+def uuid_add_upload(cfg, uuid, upload_uuid):
+    if upload_uuid not in uuid_get_uploads(cfg, uuid):
+        with open(_upload_list_path(cfg, uuid), "a") as uploads_file:
+            print(upload_uuid, file=uploads_file)
+
+def uuid_remove_upload(cfg, uuid, upload_uuid):
+    uploads = uuid_get_uploads(cfg, uuid) - frozenset((upload_uuid,))
+    with open(_upload_list_path(cfg, uuid), "w") as uploads_file:
+        uploads_file.write("\n".join(uploads))
 
 def uuid_cancel(cfg, uuid):
     """Cancel a build and delete its results

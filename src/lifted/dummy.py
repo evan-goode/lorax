@@ -17,10 +17,10 @@
 
 from subprocess import CalledProcessError
 
-from pylorax.uploaders.uploader import Uploader, UploadError
+from lifted.upload import Upload, UploadError
 
 
-class DummyUploader(Uploader):
+class DummyUpload(Upload):
     """A dummy uploader for testing and development. Waits 30 seconds."""
 
     wait = """
@@ -37,6 +37,10 @@ class DummyUploader(Uploader):
     @staticmethod
     def get_provider():
         return "Dummy"
+
+    @staticmethod
+    def get_extension():
+        return "img"
 
     def _upload(self):
         self._log(f"Waiting...")

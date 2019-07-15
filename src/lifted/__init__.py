@@ -15,7 +15,4 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from pylorax.uploaders.upload import Uploader, UploaderStatus
-# from pylorax.uploaders.aws import AWSUploader
-from pylorax.uploaders.vsphere import VSphereUploader
-from pylorax.uploaders.dummy import DummyUploader
+from lifted.dummy import DummyUpload
