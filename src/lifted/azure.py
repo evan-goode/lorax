@@ -17,15 +17,10 @@
 
 from subprocess import CalledProcessError
 
-from upload import Upload, UploadError, UploadStatus
+from lifted.upload import Upload, UploadError, hash_image
 
 class AzureUpload(Upload):
     """An upload to Microsoft Azure"""
-
-    def __init__(self, image_name, image_path, azure_variables):
-        self.validate_variables(azure_variables)
-        super().__init__(image_name, image_path, extension="vhd")
-        self.azure_variables = azure_variables
 
     test_credentials = """
 - hosts: localhost
@@ -76,54 +71,60 @@ class AzureUpload(Upload):
       secret: "{{ secret }}"
       tenant: "{{ tenant }}"
       resource_group: "{{ resource_group }}"
-      name: "{{ image_name }}"
+      name: "{{ cloud_image_name }}"
       os_type: Linux
       location: "{{ location }}"
       source: "{{ source }}"
     """
 
     @staticmethod
-    def validate_variables(variables):
-        expected_variables = [
+    def validate_settings(settings):
+        expected_settings = [
             "subscription_id", "client_id", "secret", "tenant", "resource_group",
             "storage_account_name", "storage_container", "location"
         ]
-        can_be_empty = frozenset(("subscription_id", "client_id", "secret", "tenant"))
-        for expected in expected_variables:
-            if expected not in variables:
-                raise ValueError(f"Variable {expected} expected but was not found!")
-            if not variables[expected] and expected not in can_be_empty:
-                raise ValueError(f'Variable {expected} cannot be empty!')
+        for expected in expected_settings:
+            if expected not in settings:
+                raise ValueError(f"Setting {expected} expected but was not found!")
+            if not settings[expected]:
+                raise ValueError(f'Setting {expected} cannot be empty!')
+
+    @staticmethod
+    def get_provider():
+        return "Azure"
 
     def _upload(self):
         self._log(f"Testing provided credentials...")
         try:
-            self._run_playbook(self.test_credentials, self.azure_variables)
+            self._run_playbook(self.test_credentials, self.settings)
         except CalledProcessError as error:
             raise UploadError("Could not authenticate to Azure! Invalid credentials or missing storage account.") from error
         self._log(f"Credentials look OK.")
 
-        storage_container = self.azure_variables["storage_container"]
+        image_hash = hash_image(self.image_path)
+        image_id = f"{self.cloud_image_name}-{image_hash}.vhd"
+
+        storage_container = self.settings["storage_container"]
         self._log(f"Uploading image {self.image_path} to container {storage_container}...")
         try:
             self._run_playbook(self.upload_image, {
-                **self.azure_variables,
+                **self.settings,
                 "image_path": self.image_path,
-                "image_id": self.image_id
+                "image_id": image_id
             })
         except CalledProcessError as error:
             raise UploadError("Image upload failed!") from error
         self._log("Image uploaded.")
 
-        storage_account_name = self.azure_variables["storage_account_name"]
+        storage_account_name = self.settings["storage_account_name"]
         host = f"{storage_account_name}.blob.core.windows.net"
-        uploaded_url = f"https://{host}/{storage_container}/{self.image_id}"
+        uploaded_url = f"https://{host}/{storage_container}/{image_id}"
 
         self._log(f"Importing image...")
         try:
             self._run_playbook(self.import_image, {
-                **self.azure_variables,
-                "image_name": self.image_name,
+                **self.settings,
+                "cloud_image_name": self.cloud_image_name,
                 "source": uploaded_url
             })
         except CalledProcessError as error:

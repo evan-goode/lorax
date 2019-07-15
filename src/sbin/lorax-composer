@@ -52,6 +52,7 @@ def setup_logging(logfile):
     # Setup logging to console and to logfile
     log.setLevel(logging.DEBUG)
     pylorax_log.setLevel(logging.DEBUG)
+    lifted_log.setLevel(logging.DEBUG)
 
     sh = logging.StreamHandler()
     sh.setLevel(logging.INFO)

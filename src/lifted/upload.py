@@ -151,7 +151,7 @@ class Upload(ABC):
             "cloud_image_name": self.cloud_image_name,
             "image_path": self.image_path,
             "creation_time": self.creation_time,
-            "error": self.error,
+            "error": str(self.error),
         }
 
     def set_status(self, status, status_callback=None):
@@ -165,6 +165,15 @@ class Upload(ABC):
         self.image_path = image_path
         if self.status is UploadStatus.WAITING:
             self.set_status(UploadStatus.READY, status_callback)
+
+    def reset(self, status_callback):
+        if self.is_cancellable():
+            raise RuntimeError(f"Can't reset, status is {self.status.value}!")
+        if not self.image_path:
+            raise RuntimeError(f"Can't reset, no image supplied yet!")
+        self.error = None
+        self._log("Resetting...")
+        self.set_status(UploadStatus.READY, status_callback)
 
     def is_cancellable(self):
         """Is the upload in a cancellable state?"""
@@ -189,8 +198,6 @@ class Upload(ABC):
         try:
             self.upload_pid = current_process().pid
             self.set_status(UploadStatus.RUNNING, status_callback)
-            # self.image_hash = hash_image(image_path)
-            # self.image_id = f"{cloud_image_name}-{self.image_hash}.{self.get_extension()}"
             self._upload()
             self.set_status(UploadStatus.FINISHED, status_callback)
         except UploadError as error:

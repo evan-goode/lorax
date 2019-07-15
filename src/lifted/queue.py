@@ -137,6 +137,10 @@ def ready_upload(cfg, uuid, image_path):
     """Pass an image_path to an upload and mark it ready to execute"""
     get_upload(cfg, uuid).ready(image_path, _write_callback(cfg))
 
+def reset_upload(cfg, uuid):
+    """Reset an upload so it can be attempted again"""
+    get_upload(cfg, uuid).reset(_write_callback(cfg))
+
 
 def cancel_upload(cfg, uuid):
     """Cancel an upload
@@ -187,6 +191,8 @@ def monitor(cfg):
             upload.set_status(UploadStatus.FAILED, _write_callback(cfg))
     pool = Pool(processes=SIMULTANEOUS_UPLOADS)
     pool_uuids = set()
+    def remover(uuid):
+        return lambda _: pool_uuids.remove(uuid)
     while True:
         # Every second, scoop up READY uploads from the filesystem and throw
         # them in the pool
@@ -196,5 +202,6 @@ def monitor(cfg):
             if ready and upload.uuid not in pool_uuids:
                 log.info("Starting upload %s...", upload.uuid)
                 pool_uuids.add(upload.uuid)
-                pool.apply_async(upload.execute, (_write_callback(cfg),))
+                callback = remover(upload.uuid)
+                pool.apply_async(upload.execute, (_write_callback(cfg),), callback=callback, error_callback=callback)
         time.sleep(1)

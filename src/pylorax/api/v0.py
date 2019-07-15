@@ -1011,7 +1011,7 @@ from pylorax.api.regexes import VALID_API_STRING
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 import lifted
-from lifted.queue import get_upload, get_uploads, create_upload, cancel_upload, delete_upload
+from lifted.queue import get_upload, get_uploads, create_upload, reset_upload, cancel_upload, delete_upload
 
 # The API functions don't actually get called by any code here
 # pylint: disable=unused-variable
@@ -2078,6 +2078,7 @@ def v0_api(api):
         # can change this logic later if we want to be able to upload images of
         # the same compose type to different providers
         uploader_type = {
+            "vhd": lifted.AzureUpload,
             "qcow2": lifted.DummyUpload,
         }[status["compose_type"]]
 
@@ -2094,6 +2095,8 @@ def v0_api(api):
     @checkparams([("compose_uuid", "", "no compose UUID given")])
     def v0_compose_uploads_info(compose_uuid):
         """Returns information about the uploads associated with a given compose"""
+        if not uuid_status(api.config["COMPOSER_CFG"], compose_uuid):
+            return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % compose_uuid}]), 400
         upload_uuids = uuid_get_uploads(api.config["COMPOSER_CFG"], compose_uuid)
         upload_cfg = api.config["COMPOSER_CFG"]["upload"]
         summaries = [upload.summary() for upload in get_uploads(upload_cfg, upload_uuids)]
@@ -2104,6 +2107,8 @@ def v0_api(api):
     @checkparams([("compose_uuid", "", "no compose UUID given"), ("upload_uuid", "", "no upload UUID given")])
     def v0_compose_uploads_delete(compose_uuid, upload_uuid):
         """"""
+        if not uuid_status(api.config["COMPOSER_CFG"], compose_uuid):
+            return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % compose_uuid}]), 400
         uuid_remove_upload(api.config["COMPOSER_CFG"], compose_uuid, upload_uuid)
         try:
             delete_upload(api.config["COMPOSER_CFG"]["upload"], upload_uuid)
@@ -2132,6 +2137,18 @@ def v0_api(api):
         except RuntimeError as error:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
         return jsonify(status=True, log=upload.upload_log)
+
+    @api.route("/api/v0/upload/reset", defaults={"uuid": ""}, methods=["POST"])
+    @api.route("/api/v0/upload/reset/<uuid>", methods=["POST"])
+    @checkparams([("uuid", "", "no UUID given")])
+    def v0_upload_reset(uuid):
+        """Reset an upload so it can be attempted again"""
+        try:
+            reset_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
+        except RuntimeError as error:
+            # TODO more specific errors
+            return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+        return jsonify(status=True, uuid=uuid)
 
     @api.route("/api/v0/upload/cancel", defaults={"uuid": ""}, methods=["DELETE"])
     @api.route("/api/v0/upload/cancel/<uuid>", methods=["DELETE"])
