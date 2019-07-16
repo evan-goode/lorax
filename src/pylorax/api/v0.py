@@ -2057,6 +2057,9 @@ def v0_api(api):
     @checkparams([("compose_uuid", "", "no compose UUID given")])
     def v0_compose_uploads_schedule(compose_uuid):
         """Schedule an upload of a compose to the associated cloud provider"""
+        if VALID_API_STRING.match(compose_uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         parsed = request.get_json(cache=False)
         if not parsed:
             return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
@@ -2078,6 +2081,7 @@ def v0_api(api):
         # can change this logic later if we want to be able to upload images of
         # the same compose type to different providers
         uploader_type = {
+            "ami": lifted.AWSUpload,
             "vhd": lifted.AzureUpload,
             "qcow2": lifted.DummyUpload,
         }[status["compose_type"]]
@@ -2095,6 +2099,9 @@ def v0_api(api):
     @checkparams([("compose_uuid", "", "no compose UUID given")])
     def v0_compose_uploads_info(compose_uuid):
         """Returns information about the uploads associated with a given compose"""
+        if VALID_API_STRING.match(compose_uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         if not uuid_status(api.config["COMPOSER_CFG"], compose_uuid):
             return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % compose_uuid}]), 400
         upload_uuids = uuid_get_uploads(api.config["COMPOSER_CFG"], compose_uuid)
@@ -2107,6 +2114,9 @@ def v0_api(api):
     @checkparams([("compose_uuid", "", "no compose UUID given"), ("upload_uuid", "", "no upload UUID given")])
     def v0_compose_uploads_delete(compose_uuid, upload_uuid):
         """"""
+        if None in (VALID_API_STRING.match(compose_uuid), VALID_API_STRING.match(upload_uuid)):
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         if not uuid_status(api.config["COMPOSER_CFG"], compose_uuid):
             return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % compose_uuid}]), 400
         uuid_remove_upload(api.config["COMPOSER_CFG"], compose_uuid, upload_uuid)
@@ -2121,6 +2131,9 @@ def v0_api(api):
     @checkparams([("uuid", "", "no UUID given")])
     def v0_upload_info(uuid):
         """Returns information about a given upload"""
+        if VALID_API_STRING.match(uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         try:
             upload = get_upload(api.config["COMPOSER_CFG"]["upload"], uuid).summary()
         except RuntimeError as error:
@@ -2132,6 +2145,9 @@ def v0_api(api):
     @checkparams([("uuid", "", "no UUID given")])
     def v0_upload_log(uuid):
         """Returns an upload's log"""
+        if VALID_API_STRING.match(uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         try:
             upload = get_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
         except RuntimeError as error:
@@ -2143,6 +2159,9 @@ def v0_api(api):
     @checkparams([("uuid", "", "no UUID given")])
     def v0_upload_reset(uuid):
         """Reset an upload so it can be attempted again"""
+        if VALID_API_STRING.match(uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         try:
             reset_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
         except RuntimeError as error:
@@ -2155,6 +2174,9 @@ def v0_api(api):
     @checkparams([("uuid", "", "no UUID given")])
     def v0_upload_cancel(uuid):
         """Cancel an upload that is either queued or in progress"""
+        if VALID_API_STRING.match(uuid) is None:
+            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
+
         try:
             cancel_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
         except RuntimeError as error:

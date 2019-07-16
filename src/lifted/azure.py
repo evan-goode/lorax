@@ -19,6 +19,7 @@ from subprocess import CalledProcessError
 
 from lifted.upload import Upload, UploadError, hash_image
 
+
 class AzureUpload(Upload):
     """An upload to Microsoft Azure"""
 
@@ -80,14 +81,20 @@ class AzureUpload(Upload):
     @staticmethod
     def validate_settings(settings):
         expected_settings = [
-            "subscription_id", "client_id", "secret", "tenant", "resource_group",
-            "storage_account_name", "storage_container", "location"
+            "subscription_id",
+            "client_id",
+            "secret",
+            "tenant",
+            "resource_group",
+            "storage_account_name",
+            "storage_container",
+            "location",
         ]
         for expected in expected_settings:
             if expected not in settings:
                 raise ValueError(f"Setting {expected} expected but was not found!")
             if not settings[expected]:
-                raise ValueError(f'Setting {expected} cannot be empty!')
+                raise ValueError(f"Setting {expected} cannot be empty!")
 
     @staticmethod
     def get_provider():
@@ -98,20 +105,23 @@ class AzureUpload(Upload):
         try:
             self._run_playbook(self.test_credentials, self.settings)
         except CalledProcessError as error:
-            raise UploadError("Could not authenticate to Azure! Invalid credentials or missing storage account.") from error
+            raise UploadError(
+                "Could not authenticate to Azure! Invalid credentials or missing storage account."
+            ) from error
         self._log(f"Credentials look OK.")
 
         image_hash = hash_image(self.image_path)
         image_id = f"{self.cloud_image_name}-{image_hash}.vhd"
 
         storage_container = self.settings["storage_container"]
-        self._log(f"Uploading image {self.image_path} to container {storage_container}...")
+        self._log(
+            f"Uploading image {self.image_path} to container {storage_container}..."
+        )
         try:
-            self._run_playbook(self.upload_image, {
-                **self.settings,
-                "image_path": self.image_path,
-                "image_id": image_id
-            })
+            self._run_playbook(
+                self.upload_image,
+                {**self.settings, "image_path": self.image_path, "image_id": image_id},
+            )
         except CalledProcessError as error:
             raise UploadError("Image upload failed!") from error
         self._log("Image uploaded.")
@@ -122,11 +132,14 @@ class AzureUpload(Upload):
 
         self._log(f"Importing image...")
         try:
-            self._run_playbook(self.import_image, {
-                **self.settings,
-                "cloud_image_name": self.cloud_image_name,
-                "source": uploaded_url
-            })
+            self._run_playbook(
+                self.import_image,
+                {
+                    **self.settings,
+                    "cloud_image_name": self.cloud_image_name,
+                    "source": uploaded_url,
+                },
+            )
         except CalledProcessError as error:
             raise UploadError("Image import failed!") from error
         self._log("Image imported.")

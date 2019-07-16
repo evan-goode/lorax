@@ -25,6 +25,7 @@ from multiprocessing import current_process
 import os
 import signal
 from subprocess import run, PIPE, STDOUT
+import traceback
 from uuid import uuid4
 
 CHUNK_SIZE = 65536  # 64 kibibytes
@@ -104,6 +105,7 @@ class Upload(ABC):
         :param message: the object to log
         :type message: object
         """
+        LOG.info(str(message))
         self.upload_log += f"{message}\n"
 
     def _run_playbook(self, playbook, variables=None):
@@ -184,7 +186,7 @@ class Upload(ABC):
         )
 
     def cancel(self, status_callback=None):
-        """Cancel the upload. Sends a SIGTERM to self.upload_pid"""
+        """Cancel the upload. Sends a SIGINT to self.upload_pid"""
         if not self.is_cancellable():
             raise RuntimeError(f"Can't cancel, status is already {self.status.value}!")
         if self.upload_pid:
@@ -200,7 +202,7 @@ class Upload(ABC):
             self.set_status(UploadStatus.RUNNING, status_callback)
             self._upload()
             self.set_status(UploadStatus.FINISHED, status_callback)
-        except UploadError as error:
-            self._log(error)
+        except Exception as error:
+            self._log(f"{error}: {traceback.format_exc()}")
             self.error = error
             self.set_status(UploadStatus.FAILED, status_callback)

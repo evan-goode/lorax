@@ -15,20 +15,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import json
-import operator
+from operator import itemgetter
 from subprocess import CalledProcessError
 
 import boto3
 from botocore.exceptions import BotoCoreError
 
-from pylorax.uploads.upload import Upload, UploadError
+from lifted.upload import Upload, UploadError, hash_image
+
 
 class AWSUpload(Upload):
     """An upload to Amazon Web Services"""
-
-    def __init__(self, image_name, image_path, settings, status_callback):
-        super().__init__(image_name, image_path, settings, status_callback, extension="ami")
 
     test_credentials = """
 - hosts: localhost
@@ -51,11 +48,11 @@ class AWSUpload(Upload):
       aws_secret_key: "{{ secret_key }}"
       region: "{{ region_name }}"
       filters:
-        name: "{{ image_name }}"
+        name: "{{ cloud_image_name }}"
     register: ami_facts
   - name: Fail if AMI name is taken
     fail:
-      msg: "AMI {{ image_name }} is taken!"
+      msg: "AMI {{ cloud_image_name }} is taken!"
     when: ami_facts.images | length > 0
 """
 
@@ -114,7 +111,7 @@ class AWSUpload(Upload):
       aws_access_key: "{{ access_key }}"
       aws_secret_key: "{{ secret_key }}"
       region: "{{ region_name }}"
-      name: "{{ image_name }}"
+      name: "{{ cloud_image_name }}"
       state: present
       virtualization_type: hvm
       root_device_name: /dev/sda1
@@ -126,17 +123,18 @@ class AWSUpload(Upload):
 
     @staticmethod
     def validate_settings(settings):
-        expected_settings = [
-            "access_key", "secret_key", "s3_bucket", "region_name"
-        ]
-        can_be_empty = frozenset(("access_key", "secret_key", "region_name"))
+        expected_settings = ["access_key", "secret_key", "s3_bucket", "region_name"]
         for expected in expected_settings:
             if expected not in settings:
-                raise ValueError(f'Setting {expected} expected but was not found!')
-            if not settings[expected] and expected not in can_be_empty:
-                raise ValueError(f'Setting {expected} cannot be empty!')
+                raise ValueError(f"Setting {expected} expected but was not found!")
+            if not settings[expected]:
+                raise ValueError(f"Setting {expected} cannot be empty!")
 
-    def _import_snapshot(self):
+    @staticmethod
+    def get_provider():
+        return "AWS"
+
+    def _import_snapshot(self, image_id):
         """Imports an image stored on S3 as an EC2 snapshot
 
         :returns: a snapshot ID
@@ -149,9 +147,9 @@ class AWSUpload(Upload):
 
         ec2_client = boto3.client(
             "ec2",
-            aws_access_key_id=self.aws_variables["access_key"],
-            aws_secret_access_key=self.aws_variables["secret_key"],
-            region_name=self.aws_variables["region_name"]
+            aws_access_key_id=self.settings["access_key"],
+            aws_secret_access_key=self.settings["secret_key"],
+            region_name=self.settings["region_name"],
         )
         response = None
 
@@ -163,24 +161,18 @@ class AWSUpload(Upload):
             snapshots = response["Snapshots"]
             if snapshots:
                 # Use the most recent upload (not that there should be any duplicates)
-                return max(snapshots, key=operator.itemgetter("StartTime"))["SnapshotId"]
+                return max(snapshots, key=itemgetter("StartTime"))["SnapshotId"]
             return None
 
         # If we've already imported the snapshot, just use that
-        snapshot_id = get_snapshot({
-            "Name": f"tag:{tag_key}",
-            "Values": [self.image_id]
-        })
+        snapshot_id = get_snapshot({"Name": f"tag:{tag_key}", "Values": [image_id]})
         if snapshot_id:
             return snapshot_id
 
         disk_container = {
-            "Description": self.image_id,
+            "Description": image_id,
             "Format": "raw",
-            "UserBucket": {
-                "S3Bucket": self.aws_variables["s3_bucket"],
-                "S3Key": self.image_id
-            }
+            "UserBucket": {"S3Bucket": self.settings["s3_bucket"], "S3Key": image_id},
         }
         try:
             response = ec2_client.import_snapshot(DiskContainer=disk_container)
@@ -192,80 +184,84 @@ class AWSUpload(Upload):
 
         waiter = ec2_client.get_waiter("snapshot_completed")
         try:
-            waiter.wait(Filters=[{
-                "Name": "description",
-                "Values": [generated_description]
-            }])
+            waiter.wait(
+                Filters=[{"Name": "description", "Values": [generated_description]}],
+                # wait for up to an hour; snapshot imports can take a while
+                WaiterConfig={"Delay": 15, "MaxAttempts": 240},
+            )
         except BotoCoreError as error:
             raise UploadError("Import snapshot failed!") from error
 
-        snapshot_id = get_snapshot({
-            "Name": "description",
-            "Values": [generated_description]
-        })
+        snapshot_id = get_snapshot(
+            {"Name": "description", "Values": [generated_description]}
+        )
 
-        ec2_client.create_tags(Resources=[snapshot_id], Tags=[{
-            "Key": "composer-image",
-            "Value": self.image_id
-        }])
+        ec2_client.create_tags(
+            Resources=[snapshot_id], Tags=[{"Key": tag_key, "Value": image_id}]
+        )
 
         return snapshot_id
 
     def _upload(self):
         self._log(f"Testing provided credentials...")
         try:
-            self._run_playbook(self.test_credentials, self.aws_variables)
+            self._run_playbook(self.test_credentials, self.settings)
         except CalledProcessError as error:
             raise UploadError("Could not authenticate to AWS!") from error
         self._log(f"Credentials look OK.")
 
-        self._log(f"Ensuring AMI name {self.image_name} is available...")
+        self._log(f"Ensuring AMI name {self.cloud_image_name} is available...")
         try:
-            self._run_playbook(self.ensure_ami_name_available, {
-                **self.aws_variables,
-                "image_name": self.image_name
-            })
+            self._run_playbook(
+                self.ensure_ami_name_available,
+                {**self.settings, "cloud_image_name": self.cloud_image_name},
+            )
         except CalledProcessError as error:
-            raise UploadError(f"AMI {self.image_name} already exists!") from error
+            raise UploadError(f"AMI {self.cloud_image_name} already exists!") from error
         self._log("AMI name is available.")
 
         self._log("Ensuring vmimport role exists...")
         try:
-            self._run_playbook(self.ensure_vmimport_role_exists, self.aws_variables)
+            self._run_playbook(self.ensure_vmimport_role_exists, self.settings)
         except CalledProcessError as error:
             raise UploadError("vmimport role does not exist!") from error
         self._log("vmimport role looks OK.")
 
-        bucket = self.aws_variables["s3_bucket"]
+        bucket = self.settings["s3_bucket"]
         self._log(f"Creating S3 bucket {bucket}...")
         try:
-            self._run_playbook(self.create_s3_bucket, self.aws_variables)
+            self._run_playbook(self.create_s3_bucket, self.settings)
         except CalledProcessError as error:
             raise UploadError("Could not create S3 bucket!") from error
         self._log(f"S3 bucket {bucket} created (or already existed)")
 
+        image_hash = hash_image(self.image_path)
+        image_id = f"{self.cloud_image_name}-{image_hash}.ami"
+
         self._log(f"Uploading image {self.image_path} to bucket {bucket}...")
         try:
-            self._run_playbook(self.upload_image, {
-                **self.aws_variables,
-                "image_path": self.image_path,
-                "image_id": self.image_id
-            })
+            self._run_playbook(
+                self.upload_image,
+                {**self.settings, "image_path": self.image_path, "image_id": image_id},
+            )
         except CalledProcessError as error:
             raise UploadError("Upload to S3 failed!") from error
         self._log("Image uploaded.")
 
         self._log("Importing image as an EBS snapshot...")
-        snapshot_id = self._import_snapshot()
+        snapshot_id = self._import_snapshot(image_id)
         self._log(f"Snapshot successfully imported with ID {snapshot_id}.")
 
-        self._log(f"Registering image as an AMI with name {self.image_name}...")
+        self._log(f"Registering image as an AMI with name {self.cloud_image_name}...")
         try:
-            self._run_playbook(self.register_image, {
-                **self.aws_variables,
-                "image_name": self.image_name,
-                "snapshot_id": snapshot_id
-            })
+            self._run_playbook(
+                self.register_image,
+                {
+                    **self.settings,
+                    "cloud_image_name": self.cloud_image_name,
+                    "snapshot_id": snapshot_id,
+                },
+            )
         except CalledProcessError as error:
             raise UploadError("Couldn't register image as an AMI!") from error
-        self._log(f"Image {self.image_name} successfully registered.")
+        self._log(f"Image {self.cloud_image_name} successfully registered.")
