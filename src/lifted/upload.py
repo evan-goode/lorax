@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from abc import ABC, abstractmethod
+from ansible_runner.interface import run as ansible_run
 from datetime import datetime
 from enum import Enum
 import hashlib
@@ -28,28 +28,11 @@ from subprocess import run, PIPE, STDOUT
 import traceback
 from uuid import uuid4
 
-CHUNK_SIZE = 65536  # 64 kibibytes
-
 LOG = logging.getLogger("lifted")
 
 
 class UploadError(Exception):
     """Meant to be thrown during upload and gracefully caught"""
-
-
-def hash_image(path):
-    """Returns the SHA-256 checksum of a file
-
-    :param path: path to the file to hash
-    :type path: str
-    :returns: the SHA-256 hexdigest
-    :rtype: str
-    """
-    checksum = hashlib.sha256()
-    with open(path, "rb") as file:
-        for chunk in iter(lambda: file.read(CHUNK_SIZE), b""):
-            checksum.update(chunk)
-    return checksum.hexdigest()
 
 
 class UploadStatus(Enum):
@@ -64,24 +47,27 @@ class UploadStatus(Enum):
     CANCELLED = "CANCELLED"
 
 
-class Upload(ABC):
+class Upload:
     """An upload of a composed image to an abstract cloud provider.
     Subclasses represent uploads to different providers."""
 
-    def __init__(self, cloud_image_name, settings, status_callback=None):
+    def __init__(
+        self, image_name, provider, playbook_path, settings, status_callback=None
+    ):
         self.validate_settings(settings)
         self.settings = settings
-        self.cloud_image_name = cloud_image_name
+        self.image_name = image_name
+        self.provider = provider
+        self.playbook_path = playbook_path
         self.uuid = str(uuid4())
         self.creation_time = datetime.now().timestamp()
         self.upload_log = ""
-        self.error = None
+        # self.error = None
         self.image_path = None
         self.upload_pid = None
         self.set_status(UploadStatus.WAITING, status_callback)
 
     @staticmethod
-    @abstractmethod
     def validate_settings(settings):
         """Validates uploader settings
 
@@ -89,15 +75,7 @@ class Upload(ABC):
         :type settings: dict
         :raises: ValueError if any settings are missing or invalid
         """
-
-    @staticmethod
-    @abstractmethod
-    def get_provider():
-        """Gets the name of the cloud provider the uploader is for, e.g. AWS
-
-        :returns: name of the cloud provider
-        :rtype: str
-        """
+        pass
 
     def _log(self, message):
         """Logs something to the upload log
@@ -108,38 +86,6 @@ class Upload(ABC):
         LOG.info(str(message))
         self.upload_log += f"{message}\n"
 
-    def _run_playbook(self, playbook, variables=None):
-        """Run ansible-playbook on a playbook string
-
-        :param playbook: the full string contents of the playbook to run
-        :type playbook: str
-        :param variables: a dict of the variables to be passed to ansible-playbook via
-                          "--extra-vars"
-        :type variables: dict
-        :returns: the completed process, see
-                  https://docs.python.org/3/library/subprocess.html#subprocess.CompletedProcess
-        :rtype: CompletedProcess
-        :raises: CalledProcessError if ansible-playbook exited with a non-zero return code
-        """
-        # We may want to switch to ansible-runner for better error handling.
-        result = run(
-            ["ansible-playbook", "/dev/stdin", "--extra-vars", json.dumps(variables)],
-            stdout=PIPE,
-            stderr=STDOUT,
-            input=playbook,
-            encoding="utf-8",
-        )
-        self._log(result.stdout)
-        result.check_returncode()
-        return result
-
-    @abstractmethod
-    def _upload(self):
-        """Uploads the image to the cloud
-
-        :raises: UploadError
-        """
-
     def summary(self):
         """Return a dict with useful information about the upload
 
@@ -149,11 +95,11 @@ class Upload(ABC):
         return {
             "uuid": self.uuid,
             "status": self.status.value,
-            "provider": self.get_provider(),
-            "cloud_image_name": self.cloud_image_name,
+            "provider": self.provider["name"],
+            "image_name": self.image_name,
             "image_path": self.image_path,
             "creation_time": self.creation_time,
-            "error": str(self.error),
+            # "error": str(self.error),
         }
 
     def set_status(self, status, status_callback=None):
@@ -173,7 +119,7 @@ class Upload(ABC):
             raise RuntimeError(f"Can't reset, status is {self.status.value}!")
         if not self.image_path:
             raise RuntimeError(f"Can't reset, no image supplied yet!")
-        self.error = None
+        # self.error = None
         self._log("Resetting...")
         self.set_status(UploadStatus.READY, status_callback)
 
@@ -194,15 +140,20 @@ class Upload(ABC):
         self.set_status(UploadStatus.CANCELLED, status_callback)
 
     def execute(self, status_callback=None):
-        """Error-handling wrapper around _upload"""
         if self.status is not UploadStatus.READY:
             raise RuntimeError("This upload is not ready!")
-        try:
-            self.upload_pid = current_process().pid
-            self.set_status(UploadStatus.RUNNING, status_callback)
-            self._upload()
+        self.upload_pid = current_process().pid
+        self.set_status(UploadStatus.RUNNING, status_callback)
+        runner = ansible_run(
+            playbook=self.playbook_path,
+            extravars={
+                **self.settings,
+                "image_name": self.image_name,
+                "image_path": self.image_path,
+            },
+            event_handler=self._log,
+        )
+        if runner.status == "successful":
             self.set_status(UploadStatus.FINISHED, status_callback)
-        except Exception as error:
-            self._log(f"{error}: {traceback.format_exc()}")
-            self.error = error
+        else:
             self.set_status(UploadStatus.FAILED, status_callback)

@@ -55,7 +55,8 @@ def configure(conf_file="/etc/lorax/composer.conf", root_dir="/", test_config=Fa
     conf.set("users", "root", "1")
 
     conf.add_section("upload")
-    conf.set("upload", "queue_dir", os.path.realpath(joinpaths(root_dir, "/var/lib/lorax/upload")))
+    conf.set("upload", "queue_dir", os.path.realpath(joinpaths(root_dir, "/var/lib/lorax/upload/")))
+    conf.set("upload", "providers_dir", os.path.realpath(joinpaths(root_dir, "/usr/share/lorax/lifted/providers/")))
 
     # Enable all available repo files by default
     conf.add_section("repos")

@@ -2065,7 +2065,7 @@ def v0_api(api):
             return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
         try:
             settings = parsed["settings"]
-            cloud_image_name = parsed["image_name"]
+            image_name = parsed["image_name"]
         except KeyError as e:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(e)}]), 400
 
@@ -2080,14 +2080,14 @@ def v0_api(api):
         # For now, infer the target cloud provider from the compose type. We
         # can change this logic later if we want to be able to upload images of
         # the same compose type to different providers
-        uploader_type = {
-            "ami": lifted.AWSUpload,
-            "vhd": lifted.AzureUpload,
-            "qcow2": lifted.DummyUpload,
+        provider_name = {
+            "ami": "aws",
+            "vhd": "azure",
+            "qcow2": "dummy",
         }[status["compose_type"]]
 
         try:
-            upload = create_upload(api.config["COMPOSER_CFG"]["upload"], uploader_type, cloud_image_name, settings)
+            upload = create_upload(api.config["COMPOSER_CFG"]["upload"], image_name, provider_name, settings)
         except ValueError as error:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
 
@@ -2183,6 +2183,18 @@ def v0_api(api):
             # TODO more specific errors
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
         return jsonify(status=True, uuid=uuid)
+
+    # @api.route("/api/v0/upload/settings", defaults={"provider_name": ""})
+    # @api.route("/api/v0/upload/settings/<provider_name>")
+    # @checkparams([("provider_name", "", "no provider given")])
+    # def v0_settings_get(provider_name):
+    #     settings = provider_get_settings(provider_name)
+   
+    # @api.route("/api/v0/upload/settings", defaults={"provider_name": ""}, methods=["POST"])
+    # @api.route("/api/v0/upload/settings/<provider_name>", methods=["POST"])
+    # @checkparams([("provider_name", "", "no provider given")])
+    # def v0_settings_set(provider_name):
+    #     settings = provider_get_settings(provider_name)
 
     # For when uploads don't have to be tied to composes
 

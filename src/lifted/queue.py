@@ -35,13 +35,14 @@ import pickle
 import stat
 import time
 
-from lifted.upload import UploadStatus
-from lifted.dummy import DummyUpload
+import toml
+
+from lifted.upload import Upload, UploadStatus
 
 # the maximum number of simultaneous uploads
 SIMULTANEOUS_UPLOADS = 1
 
-log = logging.getLogger("lifted")
+LOG = logging.getLogger("lifted")
 multiprocessing.log_to_stderr().setLevel(logging.INFO)
 
 
@@ -87,19 +88,19 @@ def _write_callback(cfg):
 
 def get_upload(cfg, uuid, ignore_missing=False, ignore_corrupt=False):
     """Get an Upload object by UUID
-    
+
     :param cfg: the compose config
     :type cfg: ComposerConfig
     """
     try:
         with open(os.path.join(_get_queue_path(cfg), uuid), "rb") as pickle_file:
             return pickle.load(pickle_file)
-    except FileNotFoundError as e:
+    except FileNotFoundError as error:
         if not ignore_missing:
-            raise RuntimeError(f"Could not find upload {uuid}!") from e
-    except pickle.UnpicklingError as e:
+            raise RuntimeError(f"Could not find upload {uuid}!") from error
+    except pickle.UnpicklingError as error:
         if not ignore_corrupt:
-            raise RuntimeError(f"Could not parse upload {uuid}!") from e
+            raise RuntimeError(f"Could not parse upload {uuid}!") from error
     return None
 
 
@@ -116,21 +117,36 @@ def get_all_uploads(cfg):
     return get_uploads(cfg, _list_upload_uuids(cfg))
 
 
-def create_upload(cfg, uploader_type, cloud_image_name, settings):
+def resolve_provider(cfg, provider_name):
+    path = os.path.join(cfg["providers_dir"], provider_name)
+    provider_path = os.path.join(path, "provider.toml")
+    playbook_path = os.path.join(path, "playbook.yaml")
+    try:
+        with open(provider_path) as provider_file:
+            provider = toml.load(provider_file)
+    except OSError as error:
+        raise RuntimeError(f"Couldn't find provider {provider_name}!") from error
+    if not os.path.isfile(playbook_path):
+        raise RuntimeError(f"Couldn't find playbook at {playbook_path}!")
+    return provider, playbook_path
+
+
+def create_upload(cfg, image_name, provider_name, settings):
     """Creates a new upload
 
     :param cfg: the compose config
     :type cfg: ComposerConfig
     :param compose_uuid: the UUID of the compose to upload
     :type compose_uuid: str
-    :param cloud_image_name: what to name the image in the cloud provider
-    :type cloud_image_name: str
+    :param image_name: what to name the image in the cloud provider
+    :type image_name: str
     :param settings: settings to pass to the Upload
     :type settings: dict
     :returns: the created Upload
     :rtype: str
     """
-    return uploader_type(cloud_image_name, settings, _write_callback(cfg))
+    provider, playbook_path = resolve_provider(cfg, provider_name)
+    return Upload(image_name, provider, playbook_path, settings, _write_callback(cfg))
 
 
 def ready_upload(cfg, uuid, image_path):
@@ -185,7 +201,7 @@ def monitor(cfg):
     :param cfg: the compose config
     :type cfg: ComposerConfig
     """
-    log.info("Started upload monitor.")
+    LOG.info("Started upload monitor.")
     for upload in get_all_uploads(cfg):
         # Set abandoned uploads to FAILED
         if upload.status is UploadStatus.RUNNING:
@@ -203,7 +219,7 @@ def monitor(cfg):
         for upload in sorted(all_uploads, key=attrgetter("creation_time")):
             ready = upload.status is UploadStatus.READY
             if ready and upload.uuid not in pool_uuids:
-                log.info("Starting upload %s...", upload.uuid)
+                LOG.info("Starting upload %s...", upload.uuid)
                 pool_uuids.add(upload.uuid)
                 callback = remover(upload.uuid)
                 pool.apply_async(
