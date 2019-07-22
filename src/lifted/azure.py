@@ -17,7 +17,7 @@
 
 from subprocess import CalledProcessError
 
-from lifted.upload import Upload, UploadError
+from lifted.upload import Upload, UploadError, hash_image
 
 
 class AzureUpload(Upload):

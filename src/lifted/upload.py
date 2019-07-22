@@ -48,16 +48,12 @@ class UploadStatus(Enum):
 
 
 class Upload:
-    """An upload of a composed image to an abstract cloud provider.
-    Subclasses represent uploads to different providers."""
-
     def __init__(
-        self, image_name, provider, playbook_path, settings, status_callback=None
+        self, image_name, provider_name, playbook_path, settings, status_callback=None
     ):
-        self.validate_settings(settings)
         self.settings = settings
         self.image_name = image_name
-        self.provider = provider
+        self.provider_name = provider_name
         self.playbook_path = playbook_path
         self.uuid = str(uuid4())
         self.creation_time = datetime.now().timestamp()
@@ -66,16 +62,6 @@ class Upload:
         self.image_path = None
         self.upload_pid = None
         self.set_status(UploadStatus.WAITING, status_callback)
-
-    @staticmethod
-    def validate_settings(settings):
-        """Validates uploader settings
-
-        :param settings: a dict of settings used by the uploader
-        :type settings: dict
-        :raises: ValueError if any settings are missing or invalid
-        """
-        pass
 
     def _log(self, message):
         """Logs something to the upload log
@@ -92,13 +78,15 @@ class Upload:
         :returns: upload information
         :rtype: dict
         """
+
         return {
             "uuid": self.uuid,
             "status": self.status.value,
-            "provider": self.provider["name"],
+            "provider_name": self.provider_name,
             "image_name": self.image_name,
             "image_path": self.image_path,
             "creation_time": self.creation_time,
+            "settings": self.settings,
             # "error": str(self.error),
         }
 
@@ -144,6 +132,7 @@ class Upload:
             raise RuntimeError("This upload is not ready!")
         self.upload_pid = current_process().pid
         self.set_status(UploadStatus.RUNNING, status_callback)
+
         runner = ansible_run(
             playbook=self.playbook_path,
             extravars={

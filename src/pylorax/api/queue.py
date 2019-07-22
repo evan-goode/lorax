@@ -444,7 +444,8 @@ def uuid_add_upload(cfg, uuid, upload_uuid):
 def uuid_remove_upload(cfg, uuid, upload_uuid):
     uploads = uuid_get_uploads(cfg, uuid) - frozenset((upload_uuid,))
     with open(_upload_list_path(cfg, uuid), "w") as uploads_file:
-        uploads_file.write("\n".join(uploads))
+        for upload in uploads:
+            print(upload, file=uploads_file)
 
 def uuid_ready_upload(cfg, uuid, upload_uuid):
     status = uuid_status(cfg, uuid)

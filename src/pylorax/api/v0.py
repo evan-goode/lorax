@@ -1010,8 +1010,8 @@ from pylorax.api.recipes import tag_recipe_commit, recipe_diff, RecipeFileError
 from pylorax.api.regexes import VALID_API_STRING
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
-import lifted
 from lifted.queue import get_upload, get_uploads, create_upload, reset_upload, cancel_upload, delete_upload
+from lifted.providers import get_settings_info, save_settings
 
 # The API functions don't actually get called by any code here
 # pylint: disable=unused-variable
@@ -2064,8 +2064,8 @@ def v0_api(api):
         if not parsed:
             return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
         try:
-            settings = parsed["settings"]
             image_name = parsed["image_name"]
+            settings = parsed["settings"]
         except KeyError as e:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(e)}]), 400
 
@@ -2087,7 +2087,7 @@ def v0_api(api):
         }[status["compose_type"]]
 
         try:
-            upload = create_upload(api.config["COMPOSER_CFG"]["upload"], image_name, provider_name, settings)
+            upload = create_upload(api.config["COMPOSER_CFG"]["upload"], provider_name, image_name, settings)
         except ValueError as error:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
 
@@ -2162,8 +2162,12 @@ def v0_api(api):
         if VALID_API_STRING.match(uuid) is None:
             return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
 
+        parsed = request.get_json(cache=False)
+        image_name = parsed and parsed.get("image_name") or None
+        settings = parsed and parsed.get("settings") or None
+
         try:
-            reset_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
+            reset_upload(api.config["COMPOSER_CFG"]["upload"], uuid, image_name, settings)
         except RuntimeError as error:
             # TODO more specific errors
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
@@ -2184,28 +2188,26 @@ def v0_api(api):
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
         return jsonify(status=True, uuid=uuid)
 
-    # @api.route("/api/v0/upload/settings", defaults={"provider_name": ""})
-    # @api.route("/api/v0/upload/settings/<provider_name>")
-    # @checkparams([("provider_name", "", "no provider given")])
-    # def v0_settings_get(provider_name):
-    #     settings = provider_get_settings(provider_name)
+    @api.route("/api/v0/upload/settings/info", defaults={"provider_name": ""})
+    @api.route("/api/v0/upload/settings/info/<provider_name>")
+    @checkparams([("provider_name", "", "no provider given")])
+    def v0_settings_info(provider_name):
+        try:
+            settings_info = get_settings_info(api.config["COMPOSER_CFG"]["upload"], provider_name)
+        except RuntimeError as error:
+            return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+        return jsonify(status=True, settings_info=settings_info)
    
-    # @api.route("/api/v0/upload/settings", defaults={"provider_name": ""}, methods=["POST"])
-    # @api.route("/api/v0/upload/settings/<provider_name>", methods=["POST"])
-    # @checkparams([("provider_name", "", "no provider given")])
-    # def v0_settings_set(provider_name):
-    #     settings = provider_get_settings(provider_name)
+    @api.route("/api/v0/upload/settings/update", defaults={"provider_name": ""}, methods=["POST"])
+    @api.route("/api/v0/upload/settings/update/<provider_name>", methods=["POST"])
+    @checkparams([("provider_name", "", "no provider given")])
+    def v0_settings_update(provider_name):
+        parsed = request.get_json(cache=False)
+        if not parsed:
+            return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
 
-    # For when uploads don't have to be tied to composes
-
-    # @api.route("/api/v0/upload/delete", defaults={"uuid": ""}, methods=["DELETE"])
-    # @api.route("/api/v0/upload/delete/<uuid>", methods=["DELETE"])
-    # @checkparams([("uuid", "", "no UUID given")])
-    # def v0_upload_delete(uuid):
-    #     """Delete a successful, failed, or cancelled upload"""
-    #     try:
-    #         delete_upload(api.config["COMPOSER_CFG"]["upload"], uuid)
-    #     except RuntimeError as error:
-    #         # TODO more specific errors
-    #         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
-    #     return jsonify(status=True, uuid=uuid)
+        try:
+            save_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, parsed)
+        except RuntimeError as error:
+            return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+        return jsonify(status=True)

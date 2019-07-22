@@ -35,9 +35,8 @@ import pickle
 import stat
 import time
 
-import toml
-
 from lifted.upload import Upload, UploadStatus
+from lifted.providers import resolve_provider, resolve_playbook_path, validate_settings, load_settings
 
 # the maximum number of simultaneous uploads
 SIMULTANEOUS_UPLOADS = 1
@@ -57,10 +56,18 @@ def _get_queue_path(cfg):
     # create the upload_queue directory if it doesn't exist
     os.makedirs(path, exist_ok=True)
 
-    # make sure the upload_queue directory isn't readable by others, as it will
-    # contain sensitive credentials
-    current = stat.S_IMODE(os.lstat(path).st_mode)
-    os.chmod(path, current & ~stat.S_IROTH)
+    return path
+
+
+def _get_upload_path(cfg, uuid, write=False):
+    path = os.path.join(_get_queue_path(cfg), uuid)
+    if write and not os.path.exists(path):
+        open(path, "a").close()
+    if os.path.exists(path):
+        # make sure uploads aren't readable by others, as they will contain
+        # sensitive credentials
+        current = stat.S_IMODE(os.lstat(path).st_mode)
+        os.chmod(path, current & ~stat.S_IROTH)
     return path
 
 
@@ -78,7 +85,7 @@ def _list_upload_uuids(cfg):
 
 def _write_upload(cfg, upload):
     """Dumps a pickle of the upload to the upload_queue directory"""
-    with open(os.path.join(_get_queue_path(cfg), upload.uuid), "wb") as upload_file:
+    with open(_get_upload_path(cfg, upload.uuid, write=True), "wb") as upload_file:
         pickle.dump(upload, upload_file, protocol=pickle.HIGHEST_PROTOCOL)
 
 
@@ -117,21 +124,7 @@ def get_all_uploads(cfg):
     return get_uploads(cfg, _list_upload_uuids(cfg))
 
 
-def resolve_provider(cfg, provider_name):
-    path = os.path.join(cfg["providers_dir"], provider_name)
-    provider_path = os.path.join(path, "provider.toml")
-    playbook_path = os.path.join(path, "playbook.yaml")
-    try:
-        with open(provider_path) as provider_file:
-            provider = toml.load(provider_file)
-    except OSError as error:
-        raise RuntimeError(f"Couldn't find provider {provider_name}!") from error
-    if not os.path.isfile(playbook_path):
-        raise RuntimeError(f"Couldn't find playbook at {playbook_path}!")
-    return provider, playbook_path
-
-
-def create_upload(cfg, image_name, provider_name, settings):
+def create_upload(cfg, provider_name, image_name, settings):
     """Creates a new upload
 
     :param cfg: the compose config
@@ -145,8 +138,15 @@ def create_upload(cfg, image_name, provider_name, settings):
     :returns: the created Upload
     :rtype: str
     """
-    provider, playbook_path = resolve_provider(cfg, provider_name)
-    return Upload(image_name, provider, playbook_path, settings, _write_callback(cfg))
+    validate_settings(cfg, provider_name, settings)
+    saved_settings = load_settings(cfg, provider_name)
+    return Upload(
+        image_name,
+        provider_name,
+        resolve_playbook_path(cfg, provider_name),
+        {**saved_settings, **settings},
+        _write_callback(cfg),
+    )
 
 
 def ready_upload(cfg, uuid, image_path):
@@ -154,9 +154,15 @@ def ready_upload(cfg, uuid, image_path):
     get_upload(cfg, uuid).ready(image_path, _write_callback(cfg))
 
 
-def reset_upload(cfg, uuid):
+def reset_upload(cfg, uuid, new_image_name=None, new_settings=None):
     """Reset an upload so it can be attempted again"""
-    get_upload(cfg, uuid).reset(_write_callback(cfg))
+    upload = get_upload(cfg, uuid)
+    if new_image_name:
+        upload.image_name = new_image_name
+    if new_settings:
+        validate_settings(cfg, provider_name, new_settings)
+        upload.settings = new_settings
+    upload.reset(_write_callback(cfg))
 
 
 def cancel_upload(cfg, uuid):
@@ -181,7 +187,7 @@ def delete_upload(cfg, uuid):
     upload = get_upload(cfg, uuid)
     if upload and upload.is_cancellable():
         upload.cancel()
-    os.remove(os.path.join(_get_queue_path(cfg), uuid))
+    os.remove(_get_upload_path(cfg, uuid))
 
 
 def start_upload_monitor(cfg):
