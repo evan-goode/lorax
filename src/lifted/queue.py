@@ -36,7 +36,12 @@ import stat
 import time
 
 from lifted.upload import Upload, UploadStatus
-from lifted.providers import resolve_provider, resolve_playbook_path, validate_settings, load_settings
+from lifted.providers import (
+    resolve_provider,
+    resolve_playbook_path,
+    validate_settings,
+    load_settings,
+)
 
 # the maximum number of simultaneous uploads
 SIMULTANEOUS_UPLOADS = 1
@@ -138,13 +143,12 @@ def create_upload(cfg, provider_name, image_name, settings):
     :returns: the created Upload
     :rtype: str
     """
-    validate_settings(cfg, provider_name, settings)
-    saved_settings = load_settings(cfg, provider_name)
+    validate_settings(cfg, provider_name, image_name, settings)
     return Upload(
         image_name,
         provider_name,
         resolve_playbook_path(cfg, provider_name),
-        {**saved_settings, **settings},
+        settings,
         _write_callback(cfg),
     )
 
@@ -157,10 +161,15 @@ def ready_upload(cfg, uuid, image_path):
 def reset_upload(cfg, uuid, new_image_name=None, new_settings=None):
     """Reset an upload so it can be attempted again"""
     upload = get_upload(cfg, uuid)
+    validate_settings(
+        cfg,
+        upload.provider_name,
+        new_image_name or upload.image_name,
+        new_settings or upload.settings,
+    )
     if new_image_name:
         upload.image_name = new_image_name
     if new_settings:
-        validate_settings(cfg, provider_name, new_settings)
         upload.settings = new_settings
     upload.reset(_write_callback(cfg))
 

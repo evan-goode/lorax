@@ -1002,8 +1002,9 @@ from pylorax.api.errors import *                               # pylint: disable
 from pylorax.api.projects import projects_list, projects_info, projects_depsolve
 from pylorax.api.projects import modules_list, modules_info, ProjectsError, repo_to_source
 from pylorax.api.projects import get_repo_sources, delete_repo_source, source_to_repo, dnf_repo_to_file_repo
-from pylorax.api.queue import queue_status, build_status, uuid_get_uploads, uuid_add_upload, uuid_remove_upload, uuid_delete, uuid_status, uuid_info
-from pylorax.api.queue import uuid_tar, uuid_image, uuid_cancel, uuid_log
+from pylorax.api.queue import queue_status, build_status, uuid_remove_upload
+from pylorax.api.queue import uuid_delete, uuid_status, uuid_info, uuid_tar, uuid_image, uuid_cancel, uuid_log
+from pylorax.api.queue import uuid_schedule_upload, get_type_provider
 from pylorax.api.recipes import RecipeError, list_branch_files, read_recipe_commit, recipe_filename, list_commits
 from pylorax.api.recipes import recipe_from_dict, recipe_from_toml, commit_recipe, delete_recipe, revert_recipe
 from pylorax.api.recipes import tag_recipe_commit, recipe_diff, RecipeFileError
@@ -1011,7 +1012,10 @@ from pylorax.api.regexes import VALID_API_STRING
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 from lifted.queue import get_upload, get_uploads, create_upload, reset_upload, cancel_upload, delete_upload
-from lifted.providers import get_settings_info, save_settings
+from lifted.providers import validate_settings, get_settings_info, save_settings
+
+
+import time
 
 # The API functions don't actually get called by any code here
 # pylint: disable=unused-variable
@@ -1801,6 +1805,18 @@ def v0_api(api):
         if not blueprint_exists(api, branch, blueprint_name):
             errors.append({"id": UNKNOWN_BLUEPRINT, "msg": "Unknown blueprint name: %s" % blueprint_name})
 
+        if "upload" in compose:
+            try:
+                image_name = compose["upload"]["image_name"]
+                settings = compose["upload"]["settings"]
+            except KeyError as e:
+                errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
+            provider_name = get_type_provider(compose_type)
+            try:
+                validate_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, image_name, settings)
+            except ValueError as e:
+                errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
+
         if errors:
             return jsonify(status=False, errors=errors), 400
 
@@ -1812,6 +1828,14 @@ def v0_api(api):
                 return jsonify(status=False, errors=[{"id": BAD_COMPOSE_TYPE, "msg": str(e)}]), 400
             else:
                 return jsonify(status=False, errors=[{"id": BUILD_FAILED, "msg": str(e)}]), 400
+
+        if "upload" in compose:
+            upload_uuid = uuid_schedule_upload(
+                api.config["COMPOSER_CFG"],
+                build_id,
+                image_name,
+                settings
+            )
 
         return jsonify(status=True, build_id=build_id)
 
@@ -2069,45 +2093,16 @@ def v0_api(api):
         except KeyError as e:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(e)}]), 400
 
-        status = uuid_status(api.config["COMPOSER_CFG"], compose_uuid)
-        if status is None:
-            return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % uuid}]), 400
-        if status["queue_status"] == "FINISHED":
-            _, image_path = uuid_image(api.config["COMPOSER_CFG"], compose_uuid)
-        else:
-            image_path = None
-
-        # For now, infer the target cloud provider from the compose type. We
-        # can change this logic later if we want to be able to upload images of
-        # the same compose type to different providers
-        provider_name = {
-            "ami": "aws",
-            "vhd": "azure",
-            "qcow2": "dummy",
-        }[status["compose_type"]]
-
         try:
-            upload = create_upload(api.config["COMPOSER_CFG"]["upload"], provider_name, image_name, settings)
-        except ValueError as error:
-            return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
-
-        uuid_add_upload(api.config["COMPOSER_CFG"], compose_uuid, upload.uuid)
-        return jsonify(status=True, upload_uuid=upload.uuid)
-
-    @api.route("/api/v0/compose/uploads/info", defaults={"compose_uuid": ""})
-    @api.route("/api/v0/compose/uploads/info/<compose_uuid>")
-    @checkparams([("compose_uuid", "", "no compose UUID given")])
-    def v0_compose_uploads_info(compose_uuid):
-        """Returns information about the uploads associated with a given compose"""
-        if VALID_API_STRING.match(compose_uuid) is None:
-            return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
-
-        if not uuid_status(api.config["COMPOSER_CFG"], compose_uuid):
-            return jsonify(status=False, errors=[{"id": UNKNOWN_UUID, "msg": "%s is not a valid build uuid" % compose_uuid}]), 400
-        upload_uuids = uuid_get_uploads(api.config["COMPOSER_CFG"], compose_uuid)
-        upload_cfg = api.config["COMPOSER_CFG"]["upload"]
-        summaries = [upload.summary() for upload in get_uploads(upload_cfg, upload_uuids)]
-        return jsonify(status=True, uploads=summaries)
+            upload_uuid = uuid_schedule_upload(
+                api.config["COMPOSER_CFG"],
+                compose_uuid,
+                image_name,
+                settings
+            )
+        except RuntimeError as e:
+            return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(e)}]), 400
+        return jsonify(status=True, upload_uuid=upload_uuid)
 
     @api.route("/api/v0/compose/uploads/delete", defaults={"compose_uuid": "", "upload_uuid": ""}, methods=["DELETE"])
     @api.route("/api/v0/compose/uploads/delete/<compose_uuid>/<upload_uuid>", methods=["DELETE"])

@@ -73,14 +73,16 @@ def load_settings(cfg, provider_name):
     return {}
 
 
-def validate_settings(cfg, provider_name, settings):
+def validate_settings(cfg, provider_name, image_name, settings):
+    if not image_name:
+        raise ValueError("Image name cannot be empty!")
     settings_info = get_settings_info(cfg, provider_name)
     for key, value in settings.items():
         if key not in settings_info:
-            raise RuntimeError(f'Received unexpected setting: "{key}"!')
+            raise ValueError(f'Received unexpected setting: "{key}"!')
         if "regex" in settings_info[key]:
             if not re.match(settings_info[key]["regex"], value):
-                raise RuntimeError(f'Value "{value}" is invalid for setting "{key}"!')
+                raise ValueError(f'Value "{value}" is invalid for setting "{key}"!')
 
 
 def save_settings(cfg, provider_name, settings):

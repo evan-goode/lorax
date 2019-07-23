@@ -36,7 +36,7 @@ from pylorax.base import DataHolder
 from pylorax.creator import run_creator
 from pylorax.sysutils import joinpaths
 
-from lifted.queue import get_upload, get_uploads, ready_upload
+from lifted.queue import create_upload, get_upload, get_uploads, ready_upload
 
 def check_queues(cfg):
     """Check to make sure the new and run queue symlinks are correct
@@ -424,11 +424,31 @@ def build_status(cfg, status_filter=None):
     return results
 
 def _upload_list_path(cfg, uuid):
-    return joinpaths(cfg.get("composer", "lib_dir"), "results", uuid, "UPLOADS")
+    results_dir = joinpaths(cfg.get("composer", "lib_dir"), "results", uuid)
+    if not os.path.isdir(results_dir):
+        raise RuntimeError(f'"{uuid}" is not a valid build uuid!')
+    return joinpaths(results_dir, "UPLOADS")
+
+def get_type_provider(compose_type):
+    return {
+        "ami": "aws",
+        "vhd": "azure",
+        "qcow2": "dummy",
+    }[compose_type]
+
+def uuid_schedule_upload(cfg, uuid, image_name, settings):
+    status = uuid_status(cfg, uuid)
+    if status is None:
+        raise RuntimeError(f'"{uuid}" is not a valid build uuid!')
+    provider_name = get_type_provider(status["compose_type"])
+
+    upload = create_upload(cfg["upload"], provider_name, image_name, settings)
+    uuid_add_upload(cfg, uuid, upload.uuid)
+    return upload.uuid
 
 def uuid_get_uploads(cfg, uuid):
     try:
-        with open(_upload_list_path(cfg, uuid), "r") as uploads_file:
+        with open(_upload_list_path(cfg, uuid)) as uploads_file:
             return frozenset(uploads_file.read().split())
     except FileNotFoundError:
         return frozenset()
@@ -582,6 +602,9 @@ def uuid_info(cfg, uuid):
         raise RuntimeError("Missing commit hash for %s" % uuid)
     commit_id = open(commit_path, "r").read().strip()
 
+    upload_uuids = uuid_get_uploads(cfg, uuid)
+    summaries = [upload.summary() for upload in get_uploads(cfg["upload"], upload_uuids)]
+
     return {"id":           uuid,
             "config":       cfg_dict,
             "blueprint":    frozen_dict,
@@ -589,7 +612,8 @@ def uuid_info(cfg, uuid):
             "deps":         deps_dict,
             "compose_type": details["compose_type"],
             "queue_status": details["queue_status"],
-            "image_size":   details["image_size"]
+            "image_size":   details["image_size"],
+            "uploads":      summaries,
     }
 
 def uuid_tar(cfg, uuid, metadata=False, image=False, logs=False):
