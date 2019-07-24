@@ -73,19 +73,26 @@ def load_settings(cfg, provider_name):
     return {}
 
 
-def validate_settings(cfg, provider_name, image_name, settings):
-    if not image_name:
+def validate_settings(cfg, provider_name, settings, image_name=None):
+    if image_name == "":
         raise ValueError("Image name cannot be empty!")
+    type_map = {"string": str, "boolean": bool}
     settings_info = get_settings_info(cfg, provider_name)
     for key, value in settings.items():
         if key not in settings_info:
             raise ValueError(f'Received unexpected setting: "{key}"!')
-        if "regex" in settings_info[key]:
+        setting_type = settings_info[key]["type"]
+        correct_type = type_map[setting_type]
+        if not isinstance(value, correct_type):
+            raise ValueError(
+                f'Expected a {correct_type} for "{key}", received a {setting_type}!'
+            )
+        if setting_type == "string" and "regex" in settings_info[key]:
             if not re.match(settings_info[key]["regex"], value):
                 raise ValueError(f'Value "{value}" is invalid for setting "{key}"!')
 
 
 def save_settings(cfg, provider_name, settings):
-    validate_settings(cfg, provider_name, settings)
+    validate_settings(cfg, provider_name, settings, image_name=None)
     with open(_get_settings_path(cfg, provider_name, write=True), "w") as settings_file:
         toml.dump(settings, settings_file)

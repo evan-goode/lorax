@@ -1,0 +1,12 @@
+- hosts: localhost
+  connection: local
+  tasks:
+  - name: Upload image to vSphere
+    vsphere_copy:
+      login: "{{ username }}"
+      password: "{{ password }}"
+      host: "{{ host }}"
+      datacenter: "{{ datacenter }}"
+      datastore: "{{ datastore }}"
+      src: "{{ image_path }}"
+      path: "{{ folder }}/{{ image_id }}"

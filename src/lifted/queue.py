@@ -143,7 +143,7 @@ def create_upload(cfg, provider_name, image_name, settings):
     :returns: the created Upload
     :rtype: str
     """
-    validate_settings(cfg, provider_name, image_name, settings)
+    validate_settings(cfg, provider_name, settings, image_name)
     return Upload(
         image_name,
         provider_name,
@@ -164,8 +164,8 @@ def reset_upload(cfg, uuid, new_image_name=None, new_settings=None):
     validate_settings(
         cfg,
         upload.provider_name,
-        new_image_name or upload.image_name,
         new_settings or upload.settings,
+        new_image_name or upload.image_name,
     )
     if new_image_name:
         upload.image_name = new_image_name
