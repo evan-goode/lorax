@@ -36,7 +36,7 @@ from pylorax.base import DataHolder
 from pylorax.creator import run_creator
 from pylorax.sysutils import joinpaths
 
-from lifted.queue import create_upload, get_upload, get_uploads, ready_upload
+from lifted.queue import create_upload, get_uploads, ready_upload
 
 def check_queues(cfg):
     """Check to make sure the new and run queue symlinks are correct
@@ -286,7 +286,7 @@ def get_compose_type(results_dir):
         raise RuntimeError("Cannot find ks template for build %s" % os.path.basename(results_dir))
     return t[0]
 
-def compose_detail(results_dir):
+def compose_detail(cfg, results_dir):
     """Return details about the build.
 
     :param results_dir: The directory containing the metadata and results for the build
@@ -326,6 +326,9 @@ def compose_detail(results_dir):
 
     times = timestamp_dict(results_dir)
 
+    upload_uuids = uuid_get_uploads(cfg, build_id)
+    summaries = [upload.summary() for upload in get_uploads(cfg["upload"], upload_uuids)]
+
     return {"id":           build_id,
             "queue_status": status,
             "job_created":  times.get(TS_CREATED),
@@ -334,7 +337,8 @@ def compose_detail(results_dir):
             "compose_type": compose_type,
             "blueprint":    blueprint["name"],
             "version":      blueprint["version"],
-            "image_size":   image_size
+            "image_size":   image_size,
+            "uploads":      summaries,
             }
 
 def queue_status(cfg):
@@ -355,7 +359,7 @@ def queue_status(cfg):
     new_details = []
     for n in new_queue:
         try:
-            d = compose_detail(n)
+            d = compose_detail(cfg, n)
         except IOError:
             continue
         new_details.append(d)
@@ -363,7 +367,7 @@ def queue_status(cfg):
     run_details = []
     for r in run_queue:
         try:
-            d = compose_detail(r)
+            d = compose_detail(cfg, r)
         except IOError:
             continue
         run_details.append(d)
@@ -387,7 +391,7 @@ def uuid_status(cfg, uuid):
     """
     uuid_dir = joinpaths(cfg.get("composer", "lib_dir"), "results", uuid)
     try:
-        return compose_detail(uuid_dir)
+        return compose_detail(cfg, uuid_dir)
     except IOError:
         return None
 
@@ -418,7 +422,7 @@ def build_status(cfg, status_filter=None):
         try:
             status = open(joinpaths(build, "STATUS"), "r").read().strip()
             if status in status_filter:
-                results.append(compose_detail(build))
+                results.append(compose_detail(cfg, build))
         except IOError:
             pass
     return results
@@ -595,7 +599,7 @@ def uuid_info(cfg, uuid):
         raise RuntimeError("Missing deps.toml for %s" % uuid)
     deps_dict = toml.loads(open(deps_path, "r").read())
 
-    details = compose_detail(uuid_dir)
+    details = compose_detail(cfg, uuid_dir)
 
     commit_path = joinpaths(uuid_dir, "COMMIT")
     if not os.path.exists(commit_path):
