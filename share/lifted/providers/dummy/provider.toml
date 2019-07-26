@@ -1,4 +1,4 @@
-name = "Dummy"
+display = "Dummy"
 
-[settings]
+[settings-info]
 # This provider has no settings.

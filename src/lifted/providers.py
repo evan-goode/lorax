@@ -15,32 +15,76 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from glob import glob
 import os
 import re
 import stat
 
-import toml
+import pytoml as toml
 
 
-def resolve_provider(cfg, provider_name):
-    path = os.path.join(cfg["providers_dir"], provider_name, "provider.toml")
+def resolve_provider(ucfg, provider_name):
+    """Get information about the specified provider as defined in that
+    provider's `provider.toml`, including the provider's display name and
+    settings.
+
+    At a minimum, each setting has a display name (that likely
+    differs from its snake_case name), a type, and a saved value. Currently,
+    there are two types of settings: string and boolean. String settings can
+    optionally have a "placeholder" value for use on the front end and a
+    "regex" for making sure that a value follows an expected pattern.
+
+    :param ucfg: upload config
+    :type ucfg: object
+    :param provider_name: the name of the provider to look for
+    :type provider_name: str
+    :raises: RuntimeError when the provider couldn't be found
+    :returns: the provider
+    :rtype: dict
+    """
+    path = os.path.join(ucfg["providers_dir"], provider_name, "provider.toml")
     try:
         with open(path) as provider_file:
             provider = toml.load(provider_file)
     except OSError as error:
         raise RuntimeError(f'Couldn\'t find provider "{provider_name}"!') from error
+    saved_settings = load_settings(ucfg, provider_name)
+    for setting, info in provider["settings-info"].items():
+        info["saved"] = saved_settings[setting] if setting in saved_settings else ""
     return provider
 
 
-def resolve_playbook_path(cfg, provider_name):
-    path = os.path.join(cfg["providers_dir"], provider_name, "playbook.yaml")
+def resolve_playbook_path(ucfg, provider_name):
+    """Given a provider's name, return the path to its playbook
+
+    :param ucfg: upload config
+    :type ucfg: object
+    :param provider_name: the name of the provider to find the playbook for
+    :type provider_name: str
+    :raises: RuntimeError when the provider couldn't be found
+    :returns: the path to the playbook
+    :rtype: str
+    """
+    path = os.path.join(ucfg["providers_dir"], provider_name, "playbook.yaml")
     if not os.path.isfile(path):
         raise RuntimeError(f'Couldn\'t find playbook for "{provider_name}"!')
     return path
 
 
-def _get_settings_path(cfg, provider_name, write=False):
-    directory = cfg["settings_dir"]
+def list_providers(ucfg):
+    """List the names of the available upload providers
+
+    :param ucfg: upload config
+    :type ucfg: object
+    :returns: a list of all available provider_names
+    :rtype: list of str
+    """
+    paths = glob(os.path.join(ucfg["providers_dir"], "*"))
+    return [os.path.basename(path) for path in paths]
+
+
+def _get_settings_path(ucfg, provider_name, write=False):
+    directory = ucfg["settings_dir"]
 
     # create the upload_queue directory if it doesn't exist
     os.makedirs(directory, exist_ok=True)
@@ -56,28 +100,25 @@ def _get_settings_path(cfg, provider_name, write=False):
     return path
 
 
-def get_settings_info(cfg, provider_name):
-    provider = resolve_provider(cfg, provider_name)
-    settings_info = provider["settings-info"]
-    saved_settings = load_settings(cfg, provider_name)
-    for key, info in settings_info.items():
-        info["value"] = saved_settings[key] if key in saved_settings else ""
-    return settings_info
+def validate_settings(ucfg, provider_name, settings, image_name=None):
+    """Raise a ValueError if any settings are invalid
 
-
-def load_settings(cfg, provider_name):
-    path = _get_settings_path(cfg, provider_name, write=False)
-    if os.path.isfile(path):
-        with open(path) as settings_file:
-            return toml.load(settings_file)
-    return {}
-
-
-def validate_settings(cfg, provider_name, settings, image_name=None):
+    :param ucfg: upload config
+    :type ucfg: object
+    :param provider_name: the name of the provider to validate the settings
+    against
+    :type provider_name: str
+    :param settings: the settings to validate
+    :type settings: dict
+    :param image_name: optionally check whether an image_name is valid
+    :type image_name: str
+    :raises: ValueError when the passed settings are invalid
+    :raises: RuntimeError when provider_name can't be found
+    """
     if image_name == "":
         raise ValueError("Image name cannot be empty!")
     type_map = {"string": str, "boolean": bool}
-    settings_info = get_settings_info(cfg, provider_name)
+    settings_info = resolve_provider(ucfg, provider_name)["settings-info"]
     for key, value in settings.items():
         if key not in settings_info:
             raise ValueError(f'Received unexpected setting: "{key}"!')
@@ -92,7 +133,36 @@ def validate_settings(cfg, provider_name, settings, image_name=None):
                 raise ValueError(f'Value "{value}" is invalid for setting "{key}"!')
 
 
-def save_settings(cfg, provider_name, settings):
-    validate_settings(cfg, provider_name, settings, image_name=None)
-    with open(_get_settings_path(cfg, provider_name, write=True), "w") as settings_file:
+def load_settings(ucfg, provider_name):
+    """Load saved settings for a provider
+
+    :param ucfg: upload config
+    :type ucfg: object
+    :param provider_name: the name of the cloud provider, e.g. "azure"
+    :type provider_name: str
+    :returns: the saved settings for that provider, or {} if no settings are
+    saved
+    :rtype: dict
+    """
+    path = _get_settings_path(ucfg, provider_name, write=False)
+    if os.path.isfile(path):
+        with open(path) as settings_file:
+            return toml.load(settings_file)
+    return {}
+
+
+def save_settings(ucfg, provider_name, settings):
+    """Save (and overwrite) settings for a given provider
+
+    :param ucfg: upload config
+    :type ucfg: object
+    :param provider_name: the name of the cloud provider, e.g. "azure"
+    :type provider_name: str
+    :param settings: settings to save for that provider
+    :type settings: dict
+    :raises: ValueError when passed invalid settings
+    """
+    validate_settings(ucfg, provider_name, settings, image_name=None)
+    settings_path = _get_settings_path(ucfg, provider_name, write=True)
+    with open(settings_path, "w") as settings_file:
         toml.dump(settings, settings_file)

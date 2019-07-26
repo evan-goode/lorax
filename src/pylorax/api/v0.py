@@ -1012,7 +1012,7 @@ from pylorax.api.regexes import VALID_API_STRING
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 from lifted.queue import get_upload, get_uploads, create_upload, reset_upload, cancel_upload, delete_upload
-from lifted.providers import validate_settings, get_settings_info, save_settings
+from lifted.providers import list_providers, resolve_provider, validate_settings, save_settings
 
 
 import time
@@ -1813,7 +1813,7 @@ def v0_api(api):
                 errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
             provider_name = get_type_provider(compose_type)
             try:
-                validate_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, image_name, settings)
+                validate_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, settings, image_name)
             except ValueError as e:
                 errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
 
@@ -2108,7 +2108,7 @@ def v0_api(api):
     @api.route("/api/v0/compose/uploads/delete/<compose_uuid>/<upload_uuid>", methods=["DELETE"])
     @checkparams([("compose_uuid", "", "no compose UUID given"), ("upload_uuid", "", "no upload UUID given")])
     def v0_compose_uploads_delete(compose_uuid, upload_uuid):
-        """"""
+        """Delete an upload and disassociate it from its compose"""
         if None in (VALID_API_STRING.match(compose_uuid), VALID_API_STRING.match(upload_uuid)):
             return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
 
@@ -2158,8 +2158,8 @@ def v0_api(api):
             return jsonify(status=False, errors=[{"id": INVALID_CHARS, "msg": "Invalid characters in API path"}]), 400
 
         parsed = request.get_json(cache=False)
-        image_name = parsed and parsed.get("image_name") or None
-        settings = parsed and parsed.get("settings") or None
+        image_name = parsed.get("image_name") if parsed else None
+        settings = parsed.get("settings") if parsed else None
 
         try:
             reset_upload(api.config["COMPOSER_CFG"]["upload"], uuid, image_name, settings)
@@ -2183,26 +2183,34 @@ def v0_api(api):
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
         return jsonify(status=True, uuid=uuid)
 
-    @api.route("/api/v0/upload/settings/info", defaults={"provider_name": ""})
-    @api.route("/api/v0/upload/settings/info/<provider_name>")
+    @api.route("/api/v0/upload/providers")
+    def v0_upload_providers():
+        """Return the list of available upload providers"""
+        return jsonify(providers=list_providers(api.config["COMPOSER_CFG"]["upload"]))
+
+    @api.route("/api/v0/upload/provider/info", defaults={"provider_name": ""})
+    @api.route("/api/v0/upload/provider/info/<provider_name>")
     @checkparams([("provider_name", "", "no provider given")])
-    def v0_settings_info(provider_name):
+    def v0_provider_info(provider_name):
+        """Return information about a provider, including its display name and
+        settings. Refer to the `resolve_provider` function."""
         try:
-            settings_info = get_settings_info(api.config["COMPOSER_CFG"]["upload"], provider_name)
+            provider = resolve_provider(api.config["COMPOSER_CFG"]["upload"], provider_name)
         except RuntimeError as error:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
-        return jsonify(status=True, settings_info=settings_info)
-   
-    @api.route("/api/v0/upload/settings/update", defaults={"provider_name": ""}, methods=["POST"])
-    @api.route("/api/v0/upload/settings/update/<provider_name>", methods=["POST"])
+        return jsonify(status=True, provider=provider)
+
+    @api.route("/api/v0/upload/provider/update", defaults={"provider_name": ""}, methods=["POST"])
+    @api.route("/api/v0/upload/provider/update/<provider_name>", methods=["POST"])
     @checkparams([("provider_name", "", "no provider given")])
-    def v0_settings_update(provider_name):
+    def v0_provider_update(provider_name):
+        """Update a provider's saved settings"""
         parsed = request.get_json(cache=False)
-        if not parsed:
+        if parsed is None:
             return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
 
         try:
             save_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, parsed)
-        except RuntimeError as error:
+        except (RuntimeError, ValueError) as error:
             return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
         return jsonify(status=True)
