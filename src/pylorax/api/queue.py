@@ -36,7 +36,7 @@ from pylorax.base import DataHolder
 from pylorax.creator import run_creator
 from pylorax.sysutils import joinpaths
 
-from lifted.queue import create_upload, get_uploads, ready_upload
+from lifted.queue import create_upload, get_uploads, ready_upload, delete_upload
 
 def check_queues(cfg):
     """Check to make sure the new and run queue symlinks are correct
@@ -555,6 +555,10 @@ def uuid_delete(cfg, uuid):
     uuid_dir = joinpaths(cfg.get("composer", "lib_dir"), "results", uuid)
     if not uuid_dir or len(uuid_dir) < 10:
         raise RuntimeError("Directory length is too short: %s" % uuid_dir)
+
+    for upload in get_uploads(cfg["upload"], uuid_get_uploads(cfg, uuid)):
+        delete_upload(cfg["upload"], upload.uuid)
+
     shutil.rmtree(uuid_dir)
     return True
 
