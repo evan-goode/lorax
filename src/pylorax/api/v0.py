@@ -1529,6 +1529,18 @@ def v0_compose_start():
     if not blueprint_exists(branch, blueprint_name):
         errors.append({"id": UNKNOWN_BLUEPRINT, "msg": "Unknown blueprint name: %s" % blueprint_name})
 
+    if "upload" in compose:
+        try:
+            image_name = compose["upload"]["image_name"]
+            settings = compose["upload"]["settings"]
+        except KeyError as e:
+            errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
+        provider_name = get_type_provider(compose_type)
+        try:
+            validate_settings(api.config["COMPOSER_CFG"]["upload"], provider_name, settings, image_name)
+        except ValueError as e:
+            errors.append({"id": UPLOAD_ERROR, "msg": str(e)})
+
     if errors:
         return jsonify(status=False, errors=errors), 400
 
@@ -1540,6 +1552,14 @@ def v0_compose_start():
             return jsonify(status=False, errors=[{"id": BAD_COMPOSE_TYPE, "msg": str(e)}]), 400
         else:
             return jsonify(status=False, errors=[{"id": BUILD_FAILED, "msg": str(e)}]), 400
+
+    if "upload" in compose:
+        upload_uuid = uuid_schedule_upload(
+            api.config["COMPOSER_CFG"],
+            build_id,
+            image_name,
+            settings
+        )
 
     return jsonify(status=True, build_id=build_id)
 
