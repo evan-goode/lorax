@@ -126,7 +126,7 @@ def validate_settings(ucfg, provider_name, settings, image_name=None):
         correct_type = type_map[setting_type]
         if not isinstance(value, correct_type):
             raise ValueError(
-                f'Expected a {correct_type} for "{key}", received a {setting_type}!'
+                f'Expected a {correct_type} for "{key}", received a {type(value)}!'
             )
         if setting_type == "string" and "regex" in settings_info[key]:
             if not re.match(settings_info[key]["regex"], value):

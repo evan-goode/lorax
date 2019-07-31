@@ -2055,8 +2055,8 @@ def v0_compose_log_tail(uuid):
     except RuntimeError as e:
         return jsonify(status=False, errors=[{"id": COMPOSE_ERROR, "msg": str(e)}]), 400
 
-@api.route("/api/v0/compose/uploads/schedule", defaults={'compose_uuid': ""}, methods=["POST"])
-@api.route("/api/v0/compose/uploads/schedule/<compose_uuid>", methods=["POST"])
+@v0_api.route("/compose/uploads/schedule", defaults={'compose_uuid': ""}, methods=["POST"])
+@v0_api.route("/compose/uploads/schedule/<compose_uuid>", methods=["POST"])
 @checkparams([("compose_uuid", "", "no compose UUID given")])
 def v0_compose_uploads_schedule(compose_uuid):
     """Schedule an upload of a compose to the associated cloud provider"""
@@ -2083,8 +2083,8 @@ def v0_compose_uploads_schedule(compose_uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(e)}]), 400
     return jsonify(status=True, upload_uuid=upload_uuid)
 
-@api.route("/api/v0/compose/uploads/delete", defaults={"compose_uuid": "", "upload_uuid": ""}, methods=["DELETE"])
-@api.route("/api/v0/compose/uploads/delete/<compose_uuid>/<upload_uuid>", methods=["DELETE"])
+@v0_api.route("/compose/uploads/delete", defaults={"compose_uuid": "", "upload_uuid": ""}, methods=["DELETE"])
+@v0_api.route("/compose/uploads/delete/<compose_uuid>/<upload_uuid>", methods=["DELETE"])
 @checkparams([("compose_uuid", "", "no compose UUID given"), ("upload_uuid", "", "no upload UUID given")])
 def v0_compose_uploads_delete(compose_uuid, upload_uuid):
     """Delete an upload and disassociate it from its compose"""
@@ -2100,8 +2100,8 @@ def v0_compose_uploads_delete(compose_uuid, upload_uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, upload_uuid=upload_uuid)
 
-@api.route("/api/v0/upload/info", defaults={"uuid": ""})
-@api.route("/api/v0/upload/info/<uuid>")
+@v0_api.route("/upload/info", defaults={"uuid": ""})
+@v0_api.route("/upload/info/<uuid>")
 @checkparams([("uuid", "", "no UUID given")])
 def v0_upload_info(uuid):
     """Returns information about a given upload"""
@@ -2114,8 +2114,8 @@ def v0_upload_info(uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, upload=upload)
 
-@api.route("/api/v0/upload/log", defaults={"uuid": ""})
-@api.route("/api/v0/upload/log/<uuid>")
+@v0_api.route("/upload/log", defaults={"uuid": ""})
+@v0_api.route("/upload/log/<uuid>")
 @checkparams([("uuid", "", "no UUID given")])
 def v0_upload_log(uuid):
     """Returns an upload's log"""
@@ -2128,8 +2128,8 @@ def v0_upload_log(uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, log=upload.upload_log)
 
-@api.route("/api/v0/upload/reset", defaults={"uuid": ""}, methods=["POST"])
-@api.route("/api/v0/upload/reset/<uuid>", methods=["POST"])
+@v0_api.route("/upload/reset", defaults={"uuid": ""}, methods=["POST"])
+@v0_api.route("/upload/reset/<uuid>", methods=["POST"])
 @checkparams([("uuid", "", "no UUID given")])
 def v0_upload_reset(uuid):
     """Reset an upload so it can be attempted again"""
@@ -2147,8 +2147,8 @@ def v0_upload_reset(uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, uuid=uuid)
 
-@api.route("/api/v0/upload/cancel", defaults={"uuid": ""}, methods=["DELETE"])
-@api.route("/api/v0/upload/cancel/<uuid>", methods=["DELETE"])
+@v0_api.route("/upload/cancel", defaults={"uuid": ""}, methods=["DELETE"])
+@v0_api.route("/upload/cancel/<uuid>", methods=["DELETE"])
 @checkparams([("uuid", "", "no UUID given")])
 def v0_upload_cancel(uuid):
     """Cancel an upload that is either queued or in progress"""
@@ -2162,13 +2162,13 @@ def v0_upload_cancel(uuid):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, uuid=uuid)
 
-@api.route("/api/v0/upload/providers")
+@v0_api.route("/upload/providers")
 def v0_upload_providers():
     """Return the list of available upload providers"""
     return jsonify(providers=list_providers(api.config["COMPOSER_CFG"]["upload"]))
 
-@api.route("/api/v0/upload/provider/info", defaults={"provider_name": ""})
-@api.route("/api/v0/upload/provider/info/<provider_name>")
+@v0_api.route("/upload/provider/info", defaults={"provider_name": ""})
+@v0_api.route("/upload/provider/info/<provider_name>")
 @checkparams([("provider_name", "", "no provider given")])
 def v0_provider_info(provider_name):
     """Return information about a provider, including its display name and
@@ -2179,8 +2179,8 @@ def v0_provider_info(provider_name):
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, provider=provider)
 
-@api.route("/api/v0/upload/provider/update", defaults={"provider_name": ""}, methods=["POST"])
-@api.route("/api/v0/upload/provider/update/<provider_name>", methods=["POST"])
+@v0_api.route("/upload/provider/update", defaults={"provider_name": ""}, methods=["POST"])
+@v0_api.route("/upload/provider/update/<provider_name>", methods=["POST"])
 @checkparams([("provider_name", "", "no provider given")])
 def v0_provider_update(provider_name):
     """Update a provider's saved settings"""

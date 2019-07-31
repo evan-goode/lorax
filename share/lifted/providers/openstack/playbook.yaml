@@ -1,6 +1,11 @@
 - hosts: localhost
   connection: local
   tasks:
+  - stat:
+      path: "{{ image_path }}"
+    register: image_stat
+  - set_fact:
+      image_id: "{{ image_name }}-{{ image_stat['stat']['checksum'] }}.qcow2"
   - name: Upload image to OpenStack
     os_image:
       auth:

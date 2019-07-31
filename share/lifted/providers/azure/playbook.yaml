@@ -17,8 +17,6 @@
     - stat:
         path: "{{ image_path }}"
       register: image_stat
-    - debug:
-        msg: "{{ image_stat['stat'] }}"
     - set_fact:
         image_id: "{{ image_name }}-{{ image_stat['stat']['checksum'] }}.vhd"
     - name: Upload image to Azure

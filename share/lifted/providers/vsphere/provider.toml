@@ -19,6 +19,12 @@ name = "vSphere"
 	placeholder = ""
 	regex = ''
 
+	[settings-info.folder]
+	display = "Folder"
+	type = "string"
+	placeholder = ""
+	regex = ''
+
 	[settings-info.username]
 	display = "Username"
 	type = "string"

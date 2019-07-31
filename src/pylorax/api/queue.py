@@ -454,9 +454,9 @@ def _upload_list_path(cfg, uuid):
 
 def get_type_provider(compose_type):
     return {
-        "ami": "aws",
+        "qcow2": "openstack",
         "vhd": "azure",
-        "qcow2": "dummy",
+        "vmdk": "vsphere",
     }[compose_type]
 
 def uuid_schedule_upload(cfg, uuid, image_name, settings):
