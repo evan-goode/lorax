@@ -72,7 +72,7 @@ from pylorax.api.regexes import VALID_API_STRING, VALID_BLUEPRINT_NAME
 import pylorax.api.toml as toml
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
-from lifted.queue import get_upload, get_uploads, create_upload, reset_upload, cancel_upload, delete_upload
+from lifted.queue import get_upload, reset_upload, cancel_upload, delete_upload
 from lifted.providers import list_providers, resolve_provider, validate_settings, save_settings
 
 # The API functions don't actually get called by any code here

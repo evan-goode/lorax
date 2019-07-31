@@ -15,19 +15,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from ansible_runner.interface import run as ansible_run
 from datetime import datetime
 from enum import Enum
 from functools import partial
-import hashlib
-import json
 import logging
 from multiprocessing import current_process
 import os
 import signal
-from subprocess import run, PIPE, STDOUT
-import traceback
 from uuid import uuid4
+
+from ansible_runner.interface import run as ansible_run
 
 LOG = logging.getLogger("lifted")
 

@@ -20,7 +20,7 @@ import os
 import re
 import stat
 
-import pytoml as toml
+import toml
 
 
 def resolve_provider(ucfg, provider_name):
