@@ -26,7 +26,7 @@ from uuid import uuid4
 
 from ansible_runner.interface import run as ansible_run
 
-LOG = logging.getLogger("lifted")
+log = logging.getLogger("lifted")
 
 
 class UploadStatus(Enum):
@@ -66,7 +66,7 @@ class Upload:
         :param message: the object to log
         :type message: object
         """
-        LOG.info(str(message))
+        log.info(str(message))
         self.upload_log += f"{message}\n"
         if callback:
             callback(self)

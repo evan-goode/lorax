@@ -41,7 +41,7 @@ from lifted.providers import resolve_playbook_path, validate_settings
 # the maximum number of simultaneous uploads
 SIMULTANEOUS_UPLOADS = 1
 
-LOG = logging.getLogger("lifted")
+log = logging.getLogger("lifted")
 multiprocessing.log_to_stderr().setLevel(logging.INFO)
 
 
@@ -240,7 +240,7 @@ def start_upload_monitor(ucfg):
 
 
 def _monitor(ucfg):
-    LOG.info("Started upload monitor.")
+    log.info("Started upload monitor.")
     for upload in get_all_uploads(ucfg):
         # Set abandoned uploads to FAILED
         if upload.status is UploadStatus.RUNNING:
@@ -258,7 +258,7 @@ def _monitor(ucfg):
         for upload in sorted(all_uploads, key=attrgetter("creation_time")):
             ready = upload.status is UploadStatus.READY
             if ready and upload.uuid not in pool_uuids:
-                LOG.info("Starting upload %s...", upload.uuid)
+                log.info("Starting upload %s...", upload.uuid)
                 pool_uuids.add(upload.uuid)
                 callback = remover(upload.uuid)
                 pool.apply_async(
