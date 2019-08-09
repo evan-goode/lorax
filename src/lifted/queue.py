@@ -104,7 +104,7 @@ def get_upload(ucfg, uuid, ignore_missing=False, ignore_corrupt=False):
     except FileNotFoundError as error:
         if not ignore_missing:
             raise RuntimeError(f"Could not find upload {uuid}!") from error
-    except toml.TomlDecodeError as error:
+    except toml.TomlError as error:
         if not ignore_corrupt:
             raise RuntimeError(f"Could not parse upload {uuid}!") from error
 
