@@ -20,6 +20,9 @@ import os
 import re
 import stat
 
+from ansible_runner.interface import run as ansible_run
+from ansible_runner.runner_config import RunnerConfig
+
 import pylorax.api.toml as toml
 
 
@@ -134,6 +137,26 @@ def validate_settings(ucfg, provider_name, settings, image_name=None):
         if setting_type == "string" and "regex" in settings_info[key]:
             if not re.match(settings_info[key]["regex"], value):
                 raise ValueError(f'Value "{value}" is invalid for setting "{key}"!')
+
+
+def dry_run(ucfg, provider_name, image_name, settings):
+    """Test settings without performing an upload"""
+
+    # We'll have to revisit this at a later time; support for tags was added in
+    # 1.3.0, and python3-ansible-runner is still on 1.2.0 in the Fedora repos.
+    config = RunnerConfig(tags=("dry",))
+
+    runner = ansible_run(
+        playbook=resolve_playbook_path(ucfg, provider_name),
+        config=config,
+        extravars={
+            **settings,
+            "image_name": image_name,
+        },
+    )
+    if runner.status == "successful":
+        return None
+    return tuple(runner.events)[-1].event_data.res
 
 
 def save_settings(ucfg, provider_name, profile, settings):

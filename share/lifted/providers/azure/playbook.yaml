@@ -1,19 +1,19 @@
 - hosts: localhost
   connection: local
   tasks:
-    - name: Make sure provided credentials work and the storage account exists
-      azure_rm_storageaccount_facts:
-        subscription_id: "{{ subscription_id }}"
-        client_id: "{{ client_id }}"
-        secret: "{{ secret }}"
-        tenant: "{{ tenant }}"
-        resource_group: "{{ resource_group }}"
-        name: "{{ storage_account_name }}"
-      register: storageaccount_facts
-    - name: Fail if we couldn't log in or the storage account was not found
-      fail:
-        msg: "Invalid credentials or storage account not found!"
-      when: storageaccount_facts.ansible_facts.azure_storageaccounts | length < 1
+    # - name: Make sure provided credentials work and the storage account exists
+    #   azure_rm_storageaccount_facts:
+    #     subscription_id: "{{ subscription_id }}"
+    #     client_id: "{{ client_id }}"
+    #     secret: "{{ secret }}"
+    #     tenant: "{{ tenant }}"
+    #     resource_group: "{{ resource_group }}"
+    #     name: "{{ storage_account_name }}"
+    #   register: storageaccount_facts
+    # - name: Fail if we couldn't log in or the storage account was not found
+    #   fail:
+    #     msg: "Invalid credentials or storage account not found!"
+    #   when: storageaccount_facts.ansible_facts.azure_storageaccounts | length < 1
     - stat:
         path: "{{ image_path }}"
       register: image_stat

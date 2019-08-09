@@ -73,7 +73,7 @@ import pylorax.api.toml as toml
 from pylorax.api.workspace import workspace_read, workspace_write, workspace_delete
 
 from lifted.queue import get_upload, reset_upload, cancel_upload, delete_upload
-from lifted.providers import list_providers, resolve_provider, load_profiles, validate_settings, save_settings
+from lifted.providers import list_providers, resolve_provider, load_profiles, validate_settings, dry_run, save_settings
 
 # The API functions don't actually get called by any code here
 # pylint: disable=unused-variable
@@ -2195,6 +2195,34 @@ def v0_upload_cancel(uuid):
         # TODO more specific errors
         return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
     return jsonify(status=True, uuid=uuid)
+
+@v0_api.route("/upload/dry-run", methods=["POST"])
+def v0_upload_dry_run():
+    """Test settings without actually uploading anything"""
+    parsed = request.get_json(cache=False)
+
+    if parsed is None:
+        return jsonify(status=False, errors=[{"id": MISSING_POST, "msg": "Missing POST body"}]), 400
+
+    try:
+        provider_name = parsed["provider"]
+        image_name = parsed["image_name"]
+        settings = parsed["settings"]
+    except KeyError as e:
+        return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": f'Missing parameter {str(e)}!'}]), 400
+
+
+    try:
+        result = dry_run(api.config["COMPOSER_CFG"]["upload"], provider_name, image_name, settings)
+    except RuntimeError as error:
+        # TODO more specific errors
+        return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": str(error)}])
+
+    if result:
+        return jsonify(status=False, errors=[{"id": UPLOAD_ERROR, "msg": result}])
+
+    return jsonify(status=True)
+
 
 @v0_api.route("/upload/providers")
 def v0_upload_providers():
